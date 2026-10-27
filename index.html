@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#191f22">
+  <title>烬土争衡 · 合成升星，一屏破城</title>
+  <style>
+    *{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;overflow:hidden;background:#141b1e}
+    body{display:flex;align-items:center;justify-content:center}canvas{display:block;touch-action:none;outline:none}
+  </style>
+</head>
+<body>
+  <canvas id="game" role="application" aria-label="烬土争衡策略游戏，建议横屏，鼠标或触摸操作"></canvas>
+  <script src="src/core.js"></script><script src="src/app.js"></script>
+  <script>
+    EmberApp.create({canvas:document.getElementById('game'),platform:'web'});
+  </script>
+</body>
+</html>

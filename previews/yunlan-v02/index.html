@@ -364,6 +364,7 @@
    txt('青 岚 祖 地',30,y+14,11,C.gold,true);txt(s.name,30,y+39,25,C.ink,true);txt('立族'+Math.floor(s.turn/4)+'载 · 第'+s.generation+'代 · '+E.stageName(s),31,y+81,11,C.ink);y+=125;
    const leader=E.person(s,s.leaderId),heir=E.person(s,s.heirId);card(y,99);portrait(leader,29,y+13,24);txt(leader.name,92,y+12,17,C.ink,true);badge('现任族长',92,y+39);txt(E.REALMS[leader.realm]+' · '+E.age(leader)+'岁',191,y+42,11,C.muted);txt(heir&&heir.alive?'继承人：'+heir.name:(s.successions?'已完成传位 · 下一任继承人可稍后安排':'继承人尚未指定'),31,y+76,11,C.muted);hit('查看族长',20,y,350,99,()=>a.openPerson(leader.id));y+=112;
    if(s.pending){card(y,106);txt('待议族事',31,y+13,12,C.gold,true);txt(s.pending.title,31,y+37,18,C.ink,true);btn('议事',279,y+31,78,()=>{a.sheet={kind:'event'};a.draw();});txt('时间已经停下，等你定夺',31,y+73,12,C.muted);y+=119;}
+   if(a.awayReport){const r=a.awayReport,sign=n=>(n>=0?'+':'')+n;card(y,128);txt('离开期间 · 运转 '+r.quarters+' 季',30,y+14,15,C.ink,true);txt('灵石 '+sign(r.stones)+' · 粮食 '+sign(r.food),30,y+43,13,C.green,true);txt('生产收入 '+r.income+' · 维护 '+r.upkeep+' · 培养 '+r.training,30,y+68,10,C.muted);txt(r.paused?'遇到重大族事，已暂停等待你决定':r.ending?'家族故事已结束，请查看族史':r.capped?'按上限补算8小时，年龄与修行同步推进':'年龄、修行和族务已同步推进',30,y+96,10,C.muted);hit('收起离开结算',16,y,358,128,()=>{a.awayReport=null;a.draw();});y+=141;}
    const management=E.policy(s);card(y,77);txt('族长理事 · '+E.PERSONALITIES[E.temperament(leader)].name,30,y+14,15,C.ink,true);txt((management.mode==='auto'?'已委托':'亲自处理')+' · 上限 '+management.cap+' · 保留 '+management.reserve,30,y+44,11,C.muted);btn('设置',277,y+18,78,()=>{a.sheet={kind:'policy'};a.sheetScroll=0;a.draw();},{ghost:true});y+=90;
    const ready=ps.find(p=>!E.breakReason(s,p)),promising=E.sortedPeople(s).find(p=>p.alive&&p.rootKnown&&p.root>0&&E.age(p)>=6);
    const goal=!s.buildings.garden?(s.resources.stones>=40?['先让族库有进项','营造药园需40灵石，建成后每季净多8。','去营造',()=>a.setTab('industry')]:['先攒下营造的钱','修行改耕作，每季可多结余约5灵石。','安排族人',()=>a.setTab('people')]):!s.buildings.school?['修一间族学','让后辈有书可读，也让修行有师可问。','去营造',()=>a.setTab('industry')]:!s.heirId&&E.age(leader)>=60&&ps.some(p=>p.id!==s.leaderId&&E.age(p)>=18)?['安排下一任继承人','现任族长年事渐高，可提前安排交接。','选继承人',()=>a.setTab('people')]:s.heritage<2?['续成筑基家传','族人炼气圆满后，需要下一境界的传承。','看传承',()=>a.setTab('heritage')]:ready?['可安排突破：'+ready.name,E.REALMS[ready.realm]+'修为已满，查看成功率与突破消耗。','看突破',()=>a.openPerson(ready.id)]:promising?['重点培养：'+promising.name,E.rootName(promising)+' · '+E.REALMS[promising.realm]+'，查看修行进度与职责。','去培养',()=>a.openPerson(promising.id)]:['寻找修行后辈','查看族中满六岁、尚未测灵的孩子。','看族人',()=>a.setTab('people')];
@@ -441,7 +442,7 @@
     z=lines('虫害、来客、领悟、普通争界与坊市采购统一决策。换族长后，处理风格随之改变。',23,z,344,13,C.muted,3)+23;
     btn('单次花费上限：'+p.cap+'灵石',23,z,344,()=>a.input('单次最多花多少灵石（0—10000）',String(p.cap),v=>set({cap:Number(v)})),{ghost:true});z+=58;
     btn('族库至少保留：'+p.reserve+'灵石',23,z,344,()=>a.input('族库保留额（0—100000）',String(p.reserve),v=>set({reserve:Number(v)})),{ghost:true});z+=65;
-    z=lines('预算不足时优先改选可行方案，不反复打断。婚配、传位等重大事件仍请示。族长的选择与理由记在族中近况。',23,z,344,12,C.muted,4)+20;
+    z=lines('自动模式离开页面后按时长补算，最多8小时，年龄与寿元同步推进；遇重大族事暂停。族长选择记在族中近况。',23,z,344,12,C.muted,4)+20;
    }else if(sh.kind==='event'){
     const e=s.pending;image(e.art,21,z,348,117);z+=134;txt(e.title,22,z,22,C.ink,true);z+=37;z=lines(e.body,22,z,346,14,C.muted,4)+17;
     if(e.requestReason)z=lines('请示原因：'+e.requestReason,23,z,344,12,C.gold,3)+18;
@@ -490,7 +491,7 @@
  class App{
   constructor(host){
    this.host=host;this.E=E;this.canvas=host.canvas;this.ctx=this.canvas.getContext('2d');this.images={};this.tab='home';this.filter='all';this.scroll=0;this.maxScroll=0;this.sheet=null;this.sheetScroll=0;this.sheetMaxScroll=0;this.origin='humble';this.surname='沈';this.state=null;this.hits=[];this.loadError=false;
-   this.autoEnabled=false;this.elapsed=0;this.lastTick=Date.now();this.foreground=true;this.modalDepth=0;
+   this.autoEnabled=false;this.elapsed=0;this.lastTick=Date.now();this.foreground=true;this.modalDepth=0;this.backgroundClock=null;this.awayReport=null;
    try{this.autoEnabled=host.get(KEY+'_auto')==='1';}catch(_){}
    try{const raw=host.get(KEY);if(raw)this.state=E.load(raw);}catch(e){this.loadError=true;try{const raw=host.get(KEY+'_backup');if(raw){this.state=E.load(raw);this.toastText='已从本地备份恢复';this.toastUntil=Date.now()+4000;}}catch(_){} }
    let delegatedOnLoad=false;if(this.state&&!this.loadError&&this.state.pending){const r=E.dispatch(this.state,'delegate');if(r.ok){this.state=r.state;delegatedOnLoad=!r.state.pending;}}
@@ -499,22 +500,35 @@
    for(const name of ['home','school','ancestral','outing','battle','breakthrough','wedding','funeral','male_young','male_middle','male_elder','female_young','female_elder','child']){
     const im=host.image();im.onload=()=>{this.images[name]=im;this.draw();};im.onerror=()=>{};im.src=host.asset?host.asset(name):'assets/'+name+'.webp';
    }
+   if(this.state&&!this.loadError){try{const clock=JSON.parse(host.get(KEY+'_clock')||'null');this.settleBackground(clock);if(this.awayReport)this.persist();}catch(_){}}
    this.draw();
   }
   resize(){const v=this.host.size();this.scale=v.width/390;this.height=v.height/this.scale;this.pixelRatio=Math.min(2,v.pixelRatio||1);this.safeTop=(v.safeTop||0)/this.scale;this.safeBottom=(v.safeBottom||0)/this.scale;this.canvas.width=Math.round(v.width*this.pixelRatio);this.canvas.height=Math.round(v.height*this.pixelRatio);this.draw();}
   draw(){V.render(this);}
   persist(){if(!this.state)return;try{const old=this.host.get(KEY);if(old){try{E.load(old);this.host.set(KEY+'_backup',old);}catch(_){}}
-    this.host.set(KEY,E.save(this.state));this.saveError=false;
+    this.host.set(KEY,E.save(this.state));this.host.set(KEY+'_clock',JSON.stringify(this.backgroundClock||this.clockRecord()));this.saveError=false;
    }catch(e){this.saveError=true;this.toast('本地存档未写入，请留意设备存储空间');}}
   toast(text){this.toastText=String(text).slice(0,32);this.toastUntil=Date.now()+2300;this.draw();if(this.toastTimer)clearTimeout(this.toastTimer);this.toastTimer=setTimeout(()=>this.draw(),2400);}
-  start(){this.state=E.create({origin:this.origin,surname:this.surname,seed:(Date.now()^Math.floor(Math.random()*0x7fffffff))>>>0});this.tab='home';this.scroll=0;this.sheet=null;this.autoEnabled=true;this.elapsed=0;this.lastTick=Date.now();try{this.host.set(KEY+'_auto','1');}catch(_){}this.persist();this.draw();}
+  start(){this.backgroundClock=null;this.awayReport=null;this.state=E.create({origin:this.origin,surname:this.surname,seed:(Date.now()^Math.floor(Math.random()*0x7fffffff))>>>0});this.tab='home';this.scroll=0;this.sheet=null;this.autoEnabled=true;this.elapsed=0;this.lastTick=Date.now();try{this.host.set(KEY+'_auto','1');}catch(_){}this.persist();this.draw();}
+  clockRecord(){return {at:Date.now(),elapsed:this.elapsed,active:!!(this.autoEnabled&&this.state&&!this.state.pending&&!this.state.ending&&!this.sheet&&!this.modalDepth),turn:this.state?.turn,rng:this.state?.rng};}
+  settleBackground(clock,now=Date.now()){
+   if(!clock||!this.state||!this.autoEnabled||!clock.active||clock.turn!==this.state.turn||clock.rng!==this.state.rng||!Number.isFinite(clock.at)||clock.at>now)return;
+   const elapsed=Number.isFinite(clock.elapsed)?Math.max(0,Math.min(7999,clock.elapsed)):0;
+   const away=Math.max(0,now-clock.at),total=Math.min(8*60*60*1000,away)+elapsed,quarters=Math.floor(total/8000),before={stones:this.state.resources.stones,food:this.state.resources.food,turn:this.state.turn};
+   let advanced=0,income=0,upkeep=0,training=0;
+   for(let i=0;i<quarters&&!this.state.pending&&!this.state.ending;i++){
+    const r=E.dispatch(this.state,'next');if(!r.ok)break;this.state=r.state;advanced++;const ledger=this.state.ledgers[0];income+=ledger.income;upkeep+=ledger.upkeep;training+=ledger.training;
+   }
+   this.elapsed=this.state.pending||this.state.ending?0:total%8000;
+   if(advanced){this.awayReport={quarters:advanced,income,upkeep,training,stones:Math.floor(this.state.resources.stones-before.stones),food:Math.floor(this.state.resources.food-before.food),paused:!!this.state.pending,ending:!!this.state.ending,capped:away>8*60*60*1000};if(this.state.pending){this.sheet={kind:'event'};this.sheetScroll=0;}if(this.state.ending)this.sheet={kind:'ending'};}
+  }
   autoRunning(){return !!(this.autoEnabled&&this.foreground&&this.state&&!this.state.pending&&!this.state.ending&&!this.sheet&&!this.gesture&&!this.modalDepth);}
   pauseReason(){if(!this.foreground)return '离开页面已暂停';if(this.modalDepth)return '等待弹窗操作';if(this.sheet)return this.sheet.kind==='person'?'查看详情已暂停':'查看面板已暂停';if(this.gesture)return '滑动中已暂停';return '时光暂缓';}
   tick(now){now=now==null?Date.now():now;const dt=Math.max(0,Math.min(500,now-this.lastTick));this.lastTick=now;if(!this.autoRunning())return;this.elapsed+=dt;if(this.elapsed>=8000){this.elapsed=0;this.act('next');}else this.draw();}
-  toggleAuto(){this.autoEnabled=!this.autoEnabled;this.elapsed=0;this.lastTick=Date.now();try{this.host.set(KEY+'_auto',this.autoEnabled?'1':'0');}catch(_){}this.toast(this.autoEnabled?'自动时光已开启，每8秒一季':'时光已暂停，可手动推进');}
-  hide(){this.foreground=false;this.gesture=null;this.lastTick=Date.now();this.persist();}
+  toggleAuto(){this.autoEnabled=!this.autoEnabled;this.elapsed=0;this.lastTick=Date.now();try{this.host.set(KEY+'_auto',this.autoEnabled?'1':'0');}catch(_){}this.toast(this.autoEnabled?'自动时光已开启，离开页面也会补算':'时光已暂停，可手动推进');if(this.state)this.persist();}
+  hide(){if(!this.foreground)return;this.gesture=null;this.backgroundClock=this.clockRecord();this.foreground=false;this.lastTick=Date.now();this.persist();}
   cancelGesture(){this.gesture=null;this.lastTick=Date.now();this.draw();}
-  show(){this.gesture=null;this.foreground=true;this.lastTick=Date.now();this.draw();}
+  show(){const clock=this.backgroundClock;this.backgroundClock=null;this.gesture=null;this.foreground=true;if(clock){this.settleBackground(clock);if(this.state)this.persist();}this.lastTick=Date.now();this.draw();}
   resumeModal(){this.modalDepth=Math.max(0,this.modalDepth-1);this.lastTick=Date.now();}
   input(title,value,fn){this.modalDepth++;this.host.input(title,value,v=>{this.resumeModal();fn(v);},()=>this.resumeModal());}
   setTab(id){this.gesture=null;this.tab=id;this.scroll=0;this.sheet=null;this.sheetScroll=0;this.draw();}
@@ -537,7 +551,7 @@
   }
   confirm(text,fn){this.modalDepth++;this.host.confirm(text,()=>{this.resumeModal();fn();},()=>this.resumeModal());}
   editSurname(){this.input('家族姓氏',this.surname,text=>{const v=String(text||'').replace(/[<>\r\n]/g,'').trim().slice(0,4);if(v){this.surname=v;this.draw();}});}
-  restart(){try{if(this.state)this.host.set(KEY+'_archive',E.save(this.state));this.host.remove(KEY);}catch(_){}this.state=null;this.sheet=null;this.scroll=0;this.loadError=false;this.autoEnabled=false;this.elapsed=0;this.draw();}
+  restart(){try{if(this.state)this.host.set(KEY+'_archive',E.save(this.state));this.host.remove(KEY);}catch(_){}this.state=null;this.sheet=null;this.scroll=0;this.loadError=false;this.backgroundClock=null;this.awayReport=null;this.autoEnabled=false;this.elapsed=0;this.draw();}
   settings(){
    const withGame=!!this.state,labels=withGame?['保存一份本地备份','恢复本地备份','为家族更名','重新开族','关于云岚世家']:['恢复本地备份','关于云岚世家'];
    this.modalDepth++;

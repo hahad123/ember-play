@@ -414,7 +414,7 @@
   a.hits=a.hits.filter(h=>fixedHits.includes(h)||h.y>=bodyTop-3&&h.y+h.h<=advanceY+3);
   box(0,advanceY-7,W,H-advanceY+7,C.paper,0);
   if(a.autoEnabled&&!s.ending)progress(18,advanceY-6,354,a.elapsed/8000,C.gold);
-  const timeLabel=s.pending?'处理族中大事':s.ending?'查看家族结局':a.autoEnabled?(a.autoRunning()?'时光流逝 · '+Math.max(1,Math.ceil((8000-a.elapsed)/1000))+'秒':'时光暂缓'):'推进一季 · 三个月';
+  const timeLabel=s.pending?'处理族中大事':s.ending?'查看家族结局':a.autoEnabled?(a.autoRunning()?'时光流逝 · '+Math.max(1,Math.ceil((8000-a.elapsed)/1000))+'秒':a.pauseReason()):'推进一季 · 三个月';
   btn(timeLabel,17,advanceY,244,()=>{if(s.ending){a.sheet={kind:'ending'};a.draw();}else if(s.pending){a.sheet={kind:'event'};a.draw();}else a.act('next');},{h:47});
   btn(a.autoEnabled?'暂停时光':'自动流逝',269,advanceY,104,()=>a.toggleAuto(),{h:47,ghost:true});
   box(0,navY,W,H-navY,C.green,0);rule(navY+1,0,W);const tabs=[['home','族','家族'],['people','人','族人'],['industry','田','族业'],['heritage','卷','传承'],['history','谱','族谱']];
@@ -429,6 +429,7 @@
    txt(sh.kind==='policy'?'族长理事':sh.kind==='person'?'族人详情':sh.kind==='ledger'?'族库账簿':sh.kind==='ending'?'族史终章':'待议族事',22,sy+29,17,C.ink,true);
    if(sh.kind!=='event'&&!s.ending){txt('关闭',353,sy+29,13,C.green,true,'right');hit('关闭',310,sy+17,66,44,()=>{a.sheet=null;a.sheetScroll=0;a.draw();});}
    const sheetHeader=a.hits.slice();let z=sy+72;
+   if(sh.kind==='person'||sh.kind==='ledger'||sh.kind==='policy'){txt('查看期间暂停 · 关闭后自动继续',23,z,11,C.muted);z+=26;}
    ctx.save();ctx.beginPath();ctx.rect(0,sy+66,W,shH-66-bottom);ctx.clip();ctx.translate(0,-a.sheetScroll);a.dy=-a.sheetScroll;
    try{
    if(sh.kind==='policy'){
@@ -508,13 +509,15 @@
   toast(text){this.toastText=String(text).slice(0,32);this.toastUntil=Date.now()+2300;this.draw();if(this.toastTimer)clearTimeout(this.toastTimer);this.toastTimer=setTimeout(()=>this.draw(),2400);}
   start(){this.state=E.create({origin:this.origin,surname:this.surname,seed:(Date.now()^Math.floor(Math.random()*0x7fffffff))>>>0});this.tab='home';this.scroll=0;this.sheet=null;this.autoEnabled=true;this.elapsed=0;this.lastTick=Date.now();try{this.host.set(KEY+'_auto','1');}catch(_){}this.persist();this.draw();}
   autoRunning(){return !!(this.autoEnabled&&this.foreground&&this.state&&!this.state.pending&&!this.state.ending&&!this.sheet&&!this.gesture&&!this.modalDepth);}
+  pauseReason(){if(!this.foreground)return '离开页面已暂停';if(this.modalDepth)return '等待弹窗操作';if(this.sheet)return this.sheet.kind==='person'?'查看详情已暂停':'查看面板已暂停';if(this.gesture)return '滑动中已暂停';return '时光暂缓';}
   tick(now){now=now==null?Date.now():now;const dt=Math.max(0,Math.min(500,now-this.lastTick));this.lastTick=now;if(!this.autoRunning())return;this.elapsed+=dt;if(this.elapsed>=8000){this.elapsed=0;this.act('next');}else this.draw();}
   toggleAuto(){this.autoEnabled=!this.autoEnabled;this.elapsed=0;this.lastTick=Date.now();try{this.host.set(KEY+'_auto',this.autoEnabled?'1':'0');}catch(_){}this.toast(this.autoEnabled?'自动时光已开启，每8秒一季':'时光已暂停，可手动推进');}
   hide(){this.foreground=false;this.gesture=null;this.lastTick=Date.now();this.persist();}
-  show(){this.foreground=true;this.lastTick=Date.now();this.draw();}
+  cancelGesture(){this.gesture=null;this.lastTick=Date.now();this.draw();}
+  show(){this.gesture=null;this.foreground=true;this.lastTick=Date.now();this.draw();}
   resumeModal(){this.modalDepth=Math.max(0,this.modalDepth-1);this.lastTick=Date.now();}
   input(title,value,fn){this.modalDepth++;this.host.input(title,value,v=>{this.resumeModal();fn(v);},()=>this.resumeModal());}
-  setTab(id){this.tab=id;this.scroll=0;this.sheet=null;this.sheetScroll=0;this.draw();}
+  setTab(id){this.gesture=null;this.tab=id;this.scroll=0;this.sheet=null;this.sheetScroll=0;this.draw();}
   openPerson(id){if(this.goalToRead&&this.goalToRead.id===id){const r=E.dispatch(this.state,'guidance',this.goalToRead.key);if(r.ok){this.state=r.state;this.persist();}}this.sheet={kind:'person',id};this.sheetScroll=0;this.draw();}
   act(type,arg){
    if(!this.state)return;const previous=this.state,result=E.dispatch(previous,type,arg);
@@ -564,7 +567,11 @@ function point(e){const r=canvas.getBoundingClientRect();return [e.clientX-r.lef
 canvas.addEventListener('pointerdown',e=>{canvas.setPointerCapture(e.pointerId);game.touchStart(...point(e));});
 canvas.addEventListener('pointermove',e=>{if(e.buttons||game.gesture)game.touchMove(...point(e));});
 canvas.addEventListener('pointerup',e=>game.touchEnd(...point(e)));
-canvas.addEventListener('pointercancel',()=>{game.gesture=null;});
+canvas.addEventListener('pointercancel',()=>game.cancelGesture());
+canvas.addEventListener('lostpointercapture',()=>game.cancelGesture());
+window.addEventListener('pointerup',()=>{if(game.gesture)game.cancelGesture();});
+window.addEventListener('blur',()=>game.cancelGesture());
+window.addEventListener('focus',()=>{if(!document.hidden)game.show();});
 canvas.addEventListener('wheel',e=>{
  e.preventDefault();
  const unit=e.deltaMode===1?16:e.deltaMode===2?canvas.getBoundingClientRect().height:1;

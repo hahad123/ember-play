@@ -137,16 +137,28 @@
       else{s.resources.stones+=m.reward;p.insight+=2;log(s,'历练归来',p.name+'带回'+m.reward+'灵石，悟性有所增长。','gain');}
     }s.missions=s.missions.filter(m=>m.due>s.turn);
   }
-  function policy(s){return Object.assign({mode:'protect',cap:10,reserve:30},s.policy||{});}
+  function policy(s){return Object.assign({mode:'protect',cap:10,reserve:30,visitors:'ask',border:'ask'},s.policy||{});}
   function pestWorkers(s){return living(s).filter(p=>age(p)>=12&&p.health>=60&&p.job!=='outing').sort((a,b)=>Number(b.rootKnown)-Number(a.rootKnown)||a.root-b.root||a.realm-b.realm).slice(0,2);}
   function autoRoutine(s){
-    if(!s.pending||s.pending.kind!=='harvest')return;
-    const p=policy(s);if(p.mode==='manual')return;
-    let choice;
-    if(p.mode==='protect'){if(p.cap<10||s.resources.stones-10<p.reserve)return;choice='pay';}
-    else{const workers=pestWorkers(s);if(!workers.length||workers.some(q=>!q.rootKnown||q.root>=70))return;choice='work';}
-    const title=s.pending.title,leader=person(s,s.leaderId);const error=resolve(s,choice);
-    if(!error)log(s,'族长处理族务',(leader?leader.name:'族长')+'按'+(p.mode==='protect'?'保修行':'省灵石')+'方针处理「'+title+'」：'+(choice==='pay'?'支出10灵石，保住12粮食。':'安排族人清理，未调用双灵根及以上修士。'),'event');
+    if(!s.pending)return;
+    const p=policy(s),e=s.pending;let choice,cost=0;
+    const ask=reason=>{e.requestReason=reason;};
+    if(e.kind==='harvest'){
+      if(p.mode==='manual')return ask('虫害设为自行决定');
+      if(p.mode==='protect'){choice='pay';cost=10;}
+      else{const workers=pestWorkers(s);if(!workers.length||workers.some(q=>!q.rootKnown||q.root>=70))return ask('没有足够健康的低资质族人可派，需你决定');choice='work';}
+    }else if(e.kind==='visitor'){
+      if(p.visitors==='ask')return ask('来客接纳设为每次请示，可在族长理事中修改');
+      choice=p.visitors==='accept'?'welcome':'decline';cost=choice==='welcome'?15:0;
+    }else if(e.kind==='dispute'){
+      if(p.border==='ask')return ask('邻族争界设为每次请示，可在族长理事中修改');
+      choice='talk';cost=8;
+    }else return;
+    if(cost>p.cap)return ask('本次需'+cost+'灵石，超过单次上限'+p.cap);
+    if(cost&&s.resources.stones-cost<p.reserve)return ask('支付后将低于族库保留额'+p.reserve+'灵石');
+    const title=e.title,label=e.options.find(o=>o.id===choice)?.label,leader=person(s,s.leaderId),error=resolve(s,choice);
+    if(error)return ask(error);
+    log(s,'族长处理族务',(leader?leader.name:'族长')+'处理「'+title+'」：'+label+(cost?'，支出'+cost+'灵石':'')+'。','event');
   }
   function randomEvent(s){
     if(s.pending||s.ending||s.turn<1||rand(s)>.38)return;
@@ -222,7 +234,8 @@
   function mutate(s,type,a){
     if(s.ending&&type!=='rename')return '本局已经结束';
     if(type==='resolve')return resolve(s,a);
-    if(type==='policy'){if(!a||!['protect','save','manual'].includes(a.mode)||!Number.isFinite(a.cap)||a.cap<0||a.cap>10000||!Number.isFinite(a.reserve)||a.reserve<0||a.reserve>100000)return '族务设置无效';s.policy={mode:a.mode,cap:a.cap,reserve:a.reserve};autoRoutine(s);return null;}
+    if(type==='guidance'){if(typeof a!=='string'||a.length>300)return '建议记录无效';s.guidanceRead=[...new Set([...(s.guidanceRead||[]),a])].slice(-40);return null;}
+    if(type==='policy'){if(!a||!['protect','save','manual'].includes(a.mode)||!Number.isFinite(a.cap)||a.cap<0||a.cap>10000||!Number.isFinite(a.reserve)||a.reserve<0||a.reserve>100000)return '族务设置无效';if(!['ask','accept','decline'].includes(a.visitors||'ask')||!['ask','talk'].includes(a.border||'ask'))return '族务选项无效';s.policy={mode:a.mode,cap:a.cap,reserve:a.reserve,visitors:a.visitors||'ask',border:a.border||'ask'};autoRoutine(s);return null;}
     if(s.pending)return '请先处理当前族中大事';
     const p=person(s,a&&a.id||a);
     if(type==='next'){advance(s);return null;}
@@ -319,10 +332,11 @@
    badge(E.stageName(s),30,y+12,'#e9e0c6');txt(s.name,30,y+44,23,'#fff9ec',true);txt('立族'+Math.floor(s.turn/4)+'载 · 家脉未曾断绝',31,y+80,11,'#e7e3d4');txt('青岚祖地',350,y+84,10,'#e7e3d4',false,'right');y+=125;
    const leader=E.person(s,s.leaderId),heir=E.person(s,s.heirId);card(y,99);portrait(leader,29,y+13,24);txt(leader.name,92,y+12,17,C.ink,true);badge('现任族长',92,y+39);txt(E.REALMS[leader.realm]+' · '+E.age(leader)+'岁',191,y+42,11,C.muted);txt(heir&&heir.alive?'继承人：'+heir.name:(s.successions?'已完成传位 · 下一任继承人可稍后安排':'继承人尚未指定'),31,y+76,11,C.muted);hit('查看族长',20,y,350,99,()=>a.openPerson(leader.id));y+=112;
    if(s.pending){card(y,106);txt('待议族事',31,y+13,12,C.gold,true);txt(s.pending.title,31,y+37,18,C.ink,true);btn('议事',279,y+31,78,()=>{a.sheet={kind:'event'};a.draw();});txt('时间已经停下，等你定夺',31,y+73,12,C.muted);y+=119;}
-   const management=E.policy(s);card(y,77);txt('族长理事 · '+({protect:'保修行',save:'省灵石',manual:'自行决定'}[management.mode]),30,y+14,15,C.ink,true);txt('单次上限 '+management.cap+' · 族库保留 '+management.reserve,30,y+44,11,C.muted);btn('设置',277,y+18,78,()=>{a.sheet={kind:'policy'};a.sheetScroll=0;a.draw();},{ghost:true});y+=90;headline('家族的下一步',y);y+=32;card(y,94);
+   const management=E.policy(s);card(y,77);txt('族长理事 · '+({protect:'保修行',save:'省灵石',manual:'自行决定'}[management.mode]),30,y+14,15,C.ink,true);txt('单次上限 '+management.cap+' · 族库保留 '+management.reserve,30,y+44,11,C.muted);btn('设置',277,y+18,78,()=>{a.sheet={kind:'policy'};a.sheetScroll=0;a.draw();},{ghost:true});y+=90;
    const ready=ps.find(p=>!E.breakReason(s,p)),promising=E.sortedPeople(s).find(p=>p.alive&&p.rootKnown&&p.root>0&&E.age(p)>=6);
    const goal=!s.buildings.garden?(s.resources.stones>=40?['先让族库有进项','营造药园需40灵石，建成后每季净多8。','去营造',()=>a.setTab('industry')]:['先攒下营造的钱','修行改耕作，每季可多结余约5灵石。','安排族人',()=>a.setTab('people')]):!s.buildings.school?['修一间族学','让后辈有书可读，也让修行有师可问。','去营造',()=>a.setTab('industry')]:!s.heirId&&E.age(leader)>=60&&ps.some(p=>p.id!==s.leaderId&&E.age(p)>=18)?['安排下一任继承人','现任族长年事渐高，可提前安排交接。','选继承人',()=>a.setTab('people')]:s.heritage<2?['续成筑基家传','族人炼气圆满后，需要下一境界的传承。','看传承',()=>a.setTab('heritage')]:ready?['可安排突破：'+ready.name,E.REALMS[ready.realm]+'修为已满，查看成功率与突破消耗。','看突破',()=>a.openPerson(ready.id)]:promising?['重点培养：'+promising.name,E.rootName(promising)+' · '+E.REALMS[promising.realm]+'，查看修行进度与职责。','去培养',()=>a.openPerson(promising.id)]:['寻找修行后辈','查看族中满六岁、尚未测灵的孩子。','看族人',()=>a.setTab('people')];
-   txt(goal[0],30,y+15,16,C.ink,true);lines(goal[1],30,y+42,220,12,C.muted,2);btn(goal[2],260,y+22,99,goal[3],{ghost:true});y+=109;
+   const goalKey=goal[0]+'|'+goal[1];a.goalToRead=/^(重点培养|可安排突破)：/.test(goal[0])?{id:(ready||promising).id,key:goalKey}:null;if(!(s.guidanceRead||[]).includes(goalKey)){headline('家族的下一步',y);y+=32;card(y,94);
+   txt(goal[0],30,y+15,16,C.ink,true);lines(goal[1],30,y+42,220,12,C.muted,2);btn(goal[2],260,y+22,99,()=>{a.act('guidance',goalKey);goal[3]();},{ghost:true});y+=109;}
    headline('本季收支',y,'事件与历练另计');y+=32;const f=E.forecast(s);card(y,104);
    const net=f.income-f.upkeep-f.training;txt('预计灵石 '+(net>=0?'+':'')+net,31,y+16,19,net>=0?C.green:C.red,true);txt('进项 '+f.income+'  ·  维护 '+f.upkeep+'  ·  培养 '+f.training,31,y+49,12,C.muted);txt('灵谷 '+f.food+' / 消耗 '+f.foodCost,31,y+74,12,C.muted);hit('收支账簿',16,y,358,104,()=>{a.sheet={kind:'ledger'};a.draw();});y+=121;
    headline('族中近况',y);y+=32;for(const l of s.logs.slice(0,5)){card(y,74);txt(l.title,30,y+13,14,l.kind==='bad'?C.red:C.ink,true);lines(l.text,30,y+37,325,12,C.muted,1);y+=84;}
@@ -384,16 +398,19 @@
    try{
    if(sh.kind==='policy'){
     const p=E.policy(s),set=v=>a.act('policy',Object.assign({},p,v));
-    z=lines('日常虫害由族长按方针处理；招人、培养机缘、争界、购丹、婚配与传位仍由你决定。',23,z,344,13,C.muted,4)+22;
+    z=lines('分别设置虫害、来客和争界。预算不足会请示；培养机缘、购丹、婚配与传位仍由你决定。',23,z,344,13,C.muted,4)+22;
     for(const [mode,label] of [['protect','保修行 · 花灵石请人治虫'],['save','省灵石 · 优先低资质族人清理'],['manual','自行决定 · 每次请示']]){btn((p.mode===mode?'✓ ':'')+label,23,z,344,()=>set({mode}),{ghost:p.mode!==mode,h:44});z+=54;}
+    btn('来客：'+({ask:'每次请示',accept:'预算内接纳',decline:'自动婉拒'}[p.visitors]),23,z,344,()=>set({visitors:({ask:'accept',accept:'decline',decline:'ask'}[p.visitors])}),{ghost:true});z+=58;
+    btn('争界：'+(p.border==='ask'?'每次请示':'预算内持契协商'),23,z,344,()=>set({border:p.border==='ask'?'talk':'ask'}),{ghost:true});z+=58;
     txt('超出预算、触及保留额或无人可派时请示',23,z,12,C.muted);z+=32;
     btn('单次花费上限：'+p.cap+'灵石',23,z,344,()=>a.input('单次最多花多少灵石（0—10000）',String(p.cap),v=>set({cap:Number(v)})),{ghost:true});z+=58;
     btn('族库至少保留：'+p.reserve+'灵石',23,z,344,()=>a.input('族库保留额（0—100000）',String(p.reserve),v=>set({reserve:Number(v)})),{ghost:true});z+=70;
-    z=lines('默认保修行：单次最多10灵石，族库保留30。不会自动改变你安排的族人职责；处理结果记在首页族中近况。',23,z,344,12,C.muted,4)+20;
+    z=lines('来客接纳需要15灵石，请相应提高上限。自动争界只持契协商，不擅自开战。处理结果记在族中近况。',23,z,344,12,C.muted,4)+20;
    }else if(sh.kind==='event'){
     const e=s.pending;image(e.art,21,z,348,117);z+=134;txt(e.title,22,z,22,C.ink,true);z+=37;z=lines(e.body,22,z,346,14,C.muted,4)+17;
+    if(e.requestReason)z=lines('请示原因：'+e.requestReason,23,z,344,12,C.gold,3)+18;
     for(const o of e.options){const h=62;box(20,z,350,h,C.paper,10,C.line);txt(o.label,34,z+11,15,C.green,true);lines(o.detail,34,z+35,321,11,C.muted,1);hit('事件:'+o.label,20,z,350,h,action('resolve',o.id));z+=72;}
-    if(e.kind==='harvest'){btn('设置族务托管',23,z,344,()=>{a.sheet={kind:'policy'};a.sheetScroll=0;a.draw();},{ghost:true,h:44});z+=58;}
+    if(['harvest','visitor','dispute'].includes(e.kind)){btn('设置族务托管',23,z,344,()=>{a.sheet={kind:'policy'};a.sheetScroll=0;a.draw();},{ghost:true,h:44});z+=58;}
    }else if(sh.kind==='person'){
     const p=E.person(s,sh.id);if(!p){a.sheet=null;return;}
     portrait(p,23,z,34);txt(p.name,110,z+3,23,C.ink,true);txt(E.age(p)+'岁 / 寿元'+E.lifespan(p)+' · '+E.REALMS[p.realm],110,z+36,12,C.muted);z+=82;
@@ -460,7 +477,7 @@
   resumeModal(){this.modalDepth=Math.max(0,this.modalDepth-1);this.lastTick=Date.now();}
   input(title,value,fn){this.modalDepth++;this.host.input(title,value,v=>{this.resumeModal();fn(v);},()=>this.resumeModal());}
   setTab(id){this.tab=id;this.scroll=0;this.sheet=null;this.sheetScroll=0;this.draw();}
-  openPerson(id){this.sheet={kind:'person',id};this.sheetScroll=0;this.draw();}
+  openPerson(id){if(this.goalToRead&&this.goalToRead.id===id){const r=E.dispatch(this.state,'guidance',this.goalToRead.key);if(r.ok){this.state=r.state;this.persist();}}this.sheet={kind:'person',id};this.sheetScroll=0;this.draw();}
   act(type,arg){
    if(!this.state)return;const previous=this.state,result=E.dispatch(previous,type,arg);
    if(!result.ok){this.toast(result.reason);return false;}

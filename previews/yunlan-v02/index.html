@@ -77,6 +77,15 @@
     if(!living(s).some(p=>p.realm>=required))return '需要'+REALMS[required]+'以上族人整理';
     return s.resources.stones<cost?'需要 '+cost+' 灵石':'';
   }
+  function recommendedJob(s,p){
+    if(p.health<60)return 'rest';
+    if(p.rootKnown&&p.root>=50&&age(p)>=6)return 'training';
+    if(age(p)>=16&&p.realm>=1&&s.buildings.workshop&&p.rootKnown&&p.root>0)return 'craft';
+    if(age(p)>=12)return 'farm';
+    if(age(p)>=6&&s.buildings.school)return 'study';
+    return 'rest';
+  }
+  function sortedPeople(s){return s.people.slice().sort((a,b)=>Number(b.alive)-Number(a.alive)||Number(b.rootKnown)-Number(a.rootKnown)||(a.rootKnown&&b.rootKnown?b.root-a.root:0)||b.realm-a.realm||a.id.localeCompare(b.id));}
   function trainingReason(s,p,job){
     if(!p||!p.alive)return '族人已故';if(p.job==='outing')return '族人正在外出';
     if(!JOBS[job]||job==='outing')return '不能安排这项职责';
@@ -195,7 +204,7 @@
     else if(e.kind==='succession'){const q=person(s,id);if(!q||!q.alive||age(q)<18)return '继任者不符合条件';appointLeader(s,q,'族中公议');}
     else if(e.kind==='marriage'&&id==='accept'){
       if(!p||!p.alive||p.partner)return '婚姻条件已变化';if(living(s).length>=32)return '族人已达上限';if(!pay(30))return '灵石不足';
-      const q=addPerson(s,Object.assign({},e.partner,{partner:p.id,generation:p.generation}));p.partner=q.id;s.harmony=Math.min(100,s.harmony+4);log(s,'两姓结好',p.name+'与'+q.name+'结为道侣。','major');
+      const q=addPerson(s,Object.assign({},e.partner,{partner:p.id,generation:p.generation}));q.job=recommendedJob(s,q);p.partner=q.id;s.harmony=Math.min(100,s.harmony+4);log(s,'两姓结好',p.name+'与'+q.name+'结为道侣。','major');
     }
     log(s,e.title,e.options.find(o=>o.id===id).label+'。','event');s.pending=null;updateStage(s);return null;
   }
@@ -208,7 +217,7 @@
     if(type==='build'){const why=buildReason(s,a);if(why)return why;const cost=BUILDINGS[a].base*(s.buildings[a]+1);s.resources.stones-=cost;s.project={kind:'building',id:a,remaining:1,cost};log(s,'动工营造',BUILDINGS[a].name+'开始营造，下一季落成。');return null;}
     if(type==='book'){const why=bookReason(s);if(why)return why;const cost=[0,60,180,420][s.heritage];s.resources.stones-=cost;s.project={kind:'book',remaining:2,cost};log(s,'续写传承','族中长辈开始整理'+BOOKS[s.heritage+1]+'，两季后完成。');return null;}
     if(type==='job'){const q=person(s,a.id),why=trainingReason(s,q,a.job);if(why)return why;q.job=a.job;return null;}
-    if(type==='root'){if(!p||!p.alive||age(p)<6)return '满6岁后可以测灵';if(p.rootKnown)return '已经测过灵根';if(s.resources.stones<5)return '需5灵石';s.resources.stones-=5;p.rootKnown=true;log(s,'测灵之日',p.name+'：'+rootName(p)+'。','major');return null;}
+    if(type==='root'){if(!p||!p.alive||age(p)<6)return '满6岁后可以测灵';if(p.rootKnown)return '已经测过灵根';if(s.resources.stones<5)return '需5灵石';s.resources.stones-=5;p.rootKnown=true;if(p.job==='rest')p.job=recommendedJob(s,p);log(s,'测灵之日',p.name+'：'+rootName(p)+'。','major');return null;}
     if(type==='heir'){if(!p||!p.alive||age(p)<18||p.id===s.leaderId)return '请选一位在世的成年族人';s.heirId=p.id;milestone(s,'heir','立嗣有定',p.name+'被正式指定为继承人。');log(s,'继承安排',p.name+'成为当前继承人。');updateStage(s);return null;}
     if(type==='retire'){const h=person(s,s.heirId);if(!h||!h.alive||age(h)<18)return '请先指定在世成年继承人';appointLeader(s,h,'前任族长主动传位');updateStage(s);return null;}
     if(type==='pill'){if(s.resources.stones<35)return '需35灵石';s.resources.stones-=35;s.pills++;return null;}
@@ -219,7 +228,7 @@
     if(type==='mission'){const q=person(s,a.id);if(!q||!q.alive||age(q)<16||q.realm<1||q.job==='outing'||q.health<60)return '需在族地、年满16岁且健康60以上的修士';if(s.resources.food<8)return '需8粮食作行装';
       const danger=a.risk==='ruin';s.resources.food-=8;s.missions.push({personId:q.id,due:s.turn+1,oldJob:q.job,roll:rand(s),risk:danger?.32:.08,reward:danger?26:12});q.job='outing';log(s,'出门历练',q.name+'前往'+(danger?'古迹（较险）':'山间采药（较稳）')+'，一季后回返。');return null;}
     if(type==='marriage'){if(!p||!p.alive||age(p)<18||age(p)>60||p.partner)return '需18至60岁、尚未婚配的在世族人';if(p.job==='outing')return '请待族人回家';if(living(s).length>=32)return '族人已达上限';
-      let offer=s.matchOffers[p.id];if(!offer){const q=quality(s,20);offer=s.matchOffers[p.id]={name:(p.sex==='m'?'顾清宁':'陆怀川'),sex:p.sex==='m'?'f':'m',ageMonths:Math.max(18,age(p)-2)*12,realm:q?Math.min(3,p.realm):0,root:q,rootKnown:true,health:100,job:'farm'};}
+      let offer=s.matchOffers[p.id];if(!offer){const q=quality(s,20);offer=s.matchOffers[p.id]={name:(p.sex==='m'?'顾清宁':'陆怀川'),sex:p.sex==='m'?'f':'m',ageMonths:Math.max(18,age(p)-2)*12,realm:q?Math.min(3,p.realm):0,root:q,rootKnown:true,health:100,job:'farm'};s.matchOffers[p.id].job=recommendedJob(s,s.matchOffers[p.id]);}
       event(s,'marriage','两姓之好','媒人介绍了'+offer.name+'。双方愿意结伴，仍须由族中置办安家用度。',[{id:'accept',label:'结为道侣',detail:'花30灵石，新成员正式入族'},{id:'decline',label:'暂缓此议',detail:'不消耗资源，同一人选保留'}],'wedding',{personId:p.id,partner:offer});return null;}
     if(type==='rename'){const name=String(a||'').replace(/[<>\r\n]/g,'').trim().slice(0,12);if(!name)return '请输入家族名';s.name=name;return null;}
     return '未知操作';
@@ -239,7 +248,7 @@
   function save(s){validate(s);const body=JSON.stringify(s);return JSON.stringify({version:VERSION,hash:hash(body),body});}
   function hash(str){let v=2166136261;for(let i=0;i<str.length;i++)v=Math.imul(v^str.charCodeAt(i),16777619);return (v>>>0).toString(16);}
   function load(text){const d=JSON.parse(text);if(!d||typeof d.body!=='string'||d.hash!==hash(d.body))throw Error('存档校验未通过');return validate(JSON.parse(d.body));}
-  return {VERSION,REALMS,ORIGINS,BUILDINGS,JOBS,BOOKS,SEASONS,create,dispatch,save,load,validate,living,person,age,lifespan,need,cap,rootName,forecast,stageName,buildReason,bookReason,trainingReason,breakReason,breakChance};
+  return {VERSION,REALMS,ORIGINS,BUILDINGS,JOBS,BOOKS,SEASONS,create,dispatch,save,load,validate,living,person,age,lifespan,need,cap,rootName,forecast,stageName,recommendedJob,sortedPeople,buildReason,bookReason,trainingReason,breakReason,breakChance};
 });
 
 </script><script>
@@ -305,11 +314,11 @@
    const net=f.income-f.upkeep-f.training;txt('预计灵石 '+(net>=0?'+':'')+net,31,y+16,19,net>=0?C.green:C.red,true);txt('进项 '+f.income+'  ·  维护 '+f.upkeep+'  ·  培养 '+f.training,31,y+49,12,C.muted);txt('灵谷 '+f.food+' / 消耗 '+f.foodCost,31,y+74,12,C.muted);hit('收支账簿',16,y,358,104,()=>{a.sheet={kind:'ledger'};a.draw();});y+=121;
    headline('族中近况',y);y+=32;for(const l of s.logs.slice(0,5)){card(y,74);txt(l.title,30,y+13,14,l.kind==='bad'?C.red:C.ink,true);lines(l.text,30,y+37,325,12,C.muted,1);y+=84;}
   }else if(a.tab==='people'){
-   headline('族人',y,'同族各有一条路');y+=35;
+   headline('族人',y,'已测灵根优先 · 资质由高到低');y+=35;
    for(const [i,[id,label]] of [['all','在世'],['ready','可突破'],['child','幼年'],['dead','已故']].entries()){
     const x=18+i*91,on=a.filter===id;box(x,y,81,36,on?C.green:C.card,8,C.line);txt(label,x+40,y+11,12,on?'#fff9ef':C.green,true,'center');hit(label,x,y,81,40,()=>{a.filter=id;a.scroll=0;a.draw();});
    }y+=52;
-   const members=s.people.filter(p=>a.filter==='dead'?!p.alive:p.alive&&(a.filter!=='child'||E.age(p)<18)&&(a.filter!=='ready'||[9,13,17].includes(p.realm)&&p.progress>=E.need(p)));
+   const members=E.sortedPeople(s).filter(p=>a.filter==='dead'?!p.alive:p.alive&&(a.filter!=='child'||E.age(p)<18)&&(a.filter!=='ready'||[9,13,17].includes(p.realm)&&p.progress>=E.need(p)));
    if(!members.length){card(y,110);txt('这一页暂时没有族人',195,y+35,15,C.muted,false,'center');y+=130;}
    for(const p of members){card(y,103);portrait(p,29,y+19,28);txt(p.name,101,y+15,16,p.alive?C.ink:C.muted,true);txt(E.age(p)+'岁 · '+E.REALMS[p.realm],101,y+41,12,C.muted);let tag=p.id===s.leaderId?'族长':p.id===s.heirId?'继承人':!p.alive?'已故':E.JOBS[p.job];badge(tag,275,y+14);txt(E.rootName(p),101,y+68,11,C.muted);progress(250,y+73,103,p.progress/E.need(p));hit('族人:'+p.name,17,y,356,103,()=>a.openPerson(p.id));y+=114;}
    txt('点击族人，安排职责、测灵或指定继承人',195,y+7,11,C.muted,false,'center');y+=38;
@@ -370,7 +379,7 @@
     txt(parents?'父母：'+parents:p.id===s.leaderId?'主持家族，守护一方':'入籍家人 · 第'+p.generation+'辈',23,z,12,C.muted);z+=25;progress(23,z,344,p.progress/E.need(p));z+=19;
     if(!p.alive){lines(p.cause+'。这位亲人已留在族谱之中。',23,z,344,15,C.muted,4);return;}
     if(!p.rootKnown){btn('测灵 · 5灵石',23,z,344,action('root',p.id),{ghost:true});z+=54;}
-    txt('安排职责',24,z,13,C.gold,true);z+=25;
+    const recommended=E.recommendedJob(s,p);txt('推荐：'+E.JOBS[recommended]+' · 当前：'+E.JOBS[p.job],24,z,12,C.gold,true);z+=25;if(p.job!=='outing'&&p.job!==recommended){btn('按推荐安排',23,z,344,action('job',{id:p.id,job:recommended}),{ghost:true,h:44});z+=51;}txt('安排职责',24,z,13,C.gold,true);z+=25;
     for(const [i,job] of ['training','study','farm','craft','guard','rest'].entries()){
      const x=23+(i%2)*177,cy=z+Math.floor(i/2)*49,reason=E.trainingReason(s,p,job),on=p.job===job;
      btn((on?'✓ ':'')+E.JOBS[job],x,cy,167,()=>reason?a.toast(reason):a.act('job',{id:p.id,job}),{ghost:!on,h:44});

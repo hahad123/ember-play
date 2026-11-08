@@ -137,11 +137,22 @@
       else{s.resources.stones+=m.reward;p.insight+=2;log(s,'历练归来',p.name+'带回'+m.reward+'灵石，悟性有所增长。','gain');}
     }s.missions=s.missions.filter(m=>m.due>s.turn);
   }
+  function policy(s){return Object.assign({mode:'protect',cap:10,reserve:30},s.policy||{});}
+  function pestWorkers(s){return living(s).filter(p=>age(p)>=12&&p.health>=60&&p.job!=='outing').sort((a,b)=>Number(b.rootKnown)-Number(a.rootKnown)||a.root-b.root||a.realm-b.realm).slice(0,2);}
+  function autoRoutine(s){
+    if(!s.pending||s.pending.kind!=='harvest')return;
+    const p=policy(s);if(p.mode==='manual')return;
+    let choice;
+    if(p.mode==='protect'){if(p.cap<10||s.resources.stones-10<p.reserve)return;choice='pay';}
+    else{const workers=pestWorkers(s);if(!workers.length||workers.some(q=>!q.rootKnown||q.root>=70))return;choice='work';}
+    const title=s.pending.title,leader=person(s,s.leaderId);const error=resolve(s,choice);
+    if(!error)log(s,'族长处理族务',(leader?leader.name:'族长')+'按'+(p.mode==='protect'?'保修行':'省灵石')+'方针处理「'+title+'」：'+(choice==='pay'?'支出10灵石，保住12粮食。':'安排族人清理，未调用双灵根及以上修士。'),'event');
+  }
   function randomEvent(s){
     if(s.pending||s.ending||s.turn<1||rand(s)>.38)return;
     const pool=['harvest','visitor','insight','dispute','gift'];
     const k=pool[Math.floor(rand(s)*pool.length)],ps=living(s);
-    if(k==='harvest')event(s,k,'灵田生了虫害','灵谷叶上出现虫斑。若不及时处理，这一季的余粮恐怕保不住。',[{id:'pay',label:'请人治虫',detail:'花10灵石，另保住12粮食'},{id:'work',label:'族人共同清理',detail:'本季修行积累各减4，保住收成'},{id:'leave',label:'承受损失',detail:'损失18粮食'}],'home');
+    if(k==='harvest')event(s,k,'灵田生了虫害','灵谷叶上出现虫斑。若不及时处理，这一季的余粮恐怕保不住。',[{id:'pay',label:'请人治虫',detail:'花10灵石，另保住12粮食'},{id:'work',label:'安排族人清理',detail:'派两位适龄族人清理，仅参与者修为减4'},{id:'leave',label:'承受损失',detail:'损失18粮食'}],'home');
     if(k==='visitor'&&ps.length<32)event(s,k,'山门外的来客','一位成年散修希望携家眷投靠。他愿以族规自约，和大家一起照料灵田。',[{id:'welcome',label:'接纳入族',detail:'花15灵石安置，增加一位成年族人'},{id:'decline',label:'赠水送别',detail:'保持现状，不扣资源'}],'outing',{sex:rand(s)<.5?'m':'f'});
     if(k==='insight'){const p=ps.filter(p=>p.rootKnown&&p.root>0)[Math.floor(rand(s)*ps.filter(p=>p.rootKnown&&p.root>0).length)];if(!p)return;event(s,k,'灯下有所悟',p.name+'研读旧卷，似乎摸到了以往未曾领会的关窍。',[{id:'teach',label:'请长辈指点',detail:'花8灵石，悟性+3、修为+12'},{id:'self',label:'让其自行参悟',detail:'修为+5，不消耗灵石'}],'school',{personId:p.id});}
     if(k==='dispute')event(s,k,'邻族争界','邻近家族对灵田边界提出异议。如何处理，将影响往后的往来。',[{id:'talk',label:'持契协商',detail:'花8灵石，族望+3'},{id:'defend',label:'派人据理守界',detail:'按家族守备与护山阵检定；失败损20粮食'},{id:'yield',label:'暂且退让',detail:'损10粮食，族内和睦-3'}],'battle');
@@ -180,7 +191,7 @@
     if(shortage){s.harmony=Math.max(0,s.harmony-4);log(s,'供给不足','本季维护或粮食不足，族人健康与和睦受到影响。','bad');}
     else s.harmony=Math.min(100,s.harmony+.5);
     if(s.turn%4===0)s.renown=Math.min(100,s.renown+1);
-    checkLeader(s);updateStage(s);randomEvent(s);
+    checkLeader(s);updateStage(s);randomEvent(s);autoRoutine(s);
     return '时光流转，一季已过。';
   }
   function resolve(s,id){
@@ -189,7 +200,7 @@
     const pay=n=>{if(r.stones<n)return false;r.stones-=n;return true;};
     if(e.kind==='harvest'){
       if(id==='pay'){if(!pay(10))return '灵石不足';r.food+=12;}
-      if(id==='work')for(const q of living(s))q.progress=Math.max(0,q.progress-4);
+      if(id==='work'){const workers=pestWorkers(s);if(!workers.length)return '暂无健康的适龄族人可清理';for(const q of workers)q.progress=Math.max(0,q.progress-4);log(s,'清理虫害',workers.map(q=>q.name).join('、')+'参与清理，仅参与者修为各减4。');}
       if(id==='leave')r.food=Math.max(0,r.food-18);
     }else if(e.kind==='visitor'&&id==='welcome'){
       if(living(s).length>=32)return '核心族人已达32人';if(!pay(15))return '灵石不足';
@@ -211,6 +222,7 @@
   function mutate(s,type,a){
     if(s.ending&&type!=='rename')return '本局已经结束';
     if(type==='resolve')return resolve(s,a);
+    if(type==='policy'){if(!a||!['protect','save','manual'].includes(a.mode)||!Number.isFinite(a.cap)||a.cap<0||a.cap>10000||!Number.isFinite(a.reserve)||a.reserve<0||a.reserve>100000)return '族务设置无效';s.policy={mode:a.mode,cap:a.cap,reserve:a.reserve};autoRoutine(s);return null;}
     if(s.pending)return '请先处理当前族中大事';
     const p=person(s,a&&a.id||a);
     if(type==='next'){advance(s);return null;}
@@ -248,7 +260,7 @@
   function save(s){validate(s);const body=JSON.stringify(s);return JSON.stringify({version:VERSION,hash:hash(body),body});}
   function hash(str){let v=2166136261;for(let i=0;i<str.length;i++)v=Math.imul(v^str.charCodeAt(i),16777619);return (v>>>0).toString(16);}
   function load(text){const d=JSON.parse(text);if(!d||typeof d.body!=='string'||d.hash!==hash(d.body))throw Error('存档校验未通过');return validate(JSON.parse(d.body));}
-  return {VERSION,REALMS,ORIGINS,BUILDINGS,JOBS,BOOKS,SEASONS,create,dispatch,save,load,validate,living,person,age,lifespan,need,cap,rootName,forecast,stageName,recommendedJob,sortedPeople,buildReason,bookReason,trainingReason,breakReason,breakChance};
+  return {VERSION,REALMS,ORIGINS,BUILDINGS,JOBS,BOOKS,SEASONS,create,dispatch,save,load,validate,living,person,age,lifespan,need,cap,rootName,forecast,stageName,policy,recommendedJob,sortedPeople,buildReason,bookReason,trainingReason,breakReason,breakChance};
 });
 
 </script><script>
@@ -307,7 +319,7 @@
    badge(E.stageName(s),30,y+12,'#e9e0c6');txt(s.name,30,y+44,23,'#fff9ec',true);txt('立族'+Math.floor(s.turn/4)+'载 · 家脉未曾断绝',31,y+80,11,'#e7e3d4');txt('青岚祖地',350,y+84,10,'#e7e3d4',false,'right');y+=125;
    const leader=E.person(s,s.leaderId),heir=E.person(s,s.heirId);card(y,99);portrait(leader,29,y+13,24);txt(leader.name,92,y+12,17,C.ink,true);badge('现任族长',92,y+39);txt(E.REALMS[leader.realm]+' · '+E.age(leader)+'岁',191,y+42,11,C.muted);txt(heir&&heir.alive?'继承人：'+heir.name:(s.successions?'已完成传位 · 下一任继承人可稍后安排':'继承人尚未指定'),31,y+76,11,C.muted);hit('查看族长',20,y,350,99,()=>a.openPerson(leader.id));y+=112;
    if(s.pending){card(y,106);txt('待议族事',31,y+13,12,C.gold,true);txt(s.pending.title,31,y+37,18,C.ink,true);btn('议事',279,y+31,78,()=>{a.sheet={kind:'event'};a.draw();});txt('时间已经停下，等你定夺',31,y+73,12,C.muted);y+=119;}
-   headline('家族的下一步',y);y+=32;card(y,94);
+   const management=E.policy(s);card(y,77);txt('族长理事 · '+({protect:'保修行',save:'省灵石',manual:'自行决定'}[management.mode]),30,y+14,15,C.ink,true);txt('单次上限 '+management.cap+' · 族库保留 '+management.reserve,30,y+44,11,C.muted);btn('设置',277,y+18,78,()=>{a.sheet={kind:'policy'};a.sheetScroll=0;a.draw();},{ghost:true});y+=90;headline('家族的下一步',y);y+=32;card(y,94);
    const goal=!s.buildings.garden?(s.resources.stones>=40?['先让族库有进项','营造药园需40灵石，建成后每季净多8。','去营造',()=>a.setTab('industry')]:['先攒下营造的钱','修行改耕作，每季可多结余约5灵石。','安排族人',()=>a.setTab('people')]):!s.buildings.school?['修一间族学','让后辈有书可读，也让修行有师可问。','去营造',()=>a.setTab('industry')]:!s.heirId&&E.age(leader)>=60&&ps.some(p=>p.id!==s.leaderId&&E.age(p)>=18)?['安排下一任继承人','现任族长年事渐高，可提前安排交接。','选继承人',()=>a.setTab('people')]:s.heritage<2?['续成筑基家传','族人炼气圆满后，需要下一境界的传承。','看传承',()=>a.setTab('heritage')]:['家业渐稳，勿忘后辈','经营产业、修养族人，为下一次破境攒下资源。','看族人',()=>a.setTab('people')];
    txt(goal[0],30,y+15,16,C.ink,true);lines(goal[1],30,y+42,220,12,C.muted,2);btn(goal[2],260,y+22,99,goal[3],{ghost:true});y+=109;
    headline('本季收支',y,'事件与历练另计');y+=32;const f=E.forecast(s);card(y,104);
@@ -364,14 +376,23 @@
    a.hits=[];ctx.fillStyle='rgba(25,40,31,.42)';ctx.fillRect(0,0,W,H);const sh=a.sheet;
    if(sh.kind==='event'&&!s.pending){a.sheet=null;return;}
    const shH=Math.min(H-top-28,sh.kind==='person'?680:sh.kind==='ledger'?600:590),sy=H-shH;box(0,sy,W,shH,C.card,20);box(170,sy+10,50,4,C.line,2);
-   txt(sh.kind==='person'?'族人详情':sh.kind==='ledger'?'族库账簿':sh.kind==='ending'?'族史终章':'待议族事',22,sy+29,17,C.ink,true);
+   txt(sh.kind==='policy'?'族长理事':sh.kind==='person'?'族人详情':sh.kind==='ledger'?'族库账簿':sh.kind==='ending'?'族史终章':'待议族事',22,sy+29,17,C.ink,true);
    if(sh.kind!=='event'&&!s.ending){txt('关闭',353,sy+29,13,C.green,true,'right');hit('关闭',310,sy+17,66,44,()=>{a.sheet=null;a.sheetScroll=0;a.draw();});}
    const sheetHeader=a.hits.slice();let z=sy+72;
    ctx.save();ctx.beginPath();ctx.rect(0,sy+66,W,shH-66-bottom);ctx.clip();ctx.translate(0,-a.sheetScroll);a.dy=-a.sheetScroll;
    try{
-   if(sh.kind==='event'){
+   if(sh.kind==='policy'){
+    const p=E.policy(s),set=v=>a.act('policy',Object.assign({},p,v));
+    z=lines('日常虫害由族长按方针处理；招人、培养机缘、争界、购丹、婚配与传位仍由你决定。',23,z,344,13,C.muted,4)+22;
+    for(const [mode,label] of [['protect','保修行 · 花灵石请人治虫'],['save','省灵石 · 优先低资质族人清理'],['manual','自行决定 · 每次请示']]){btn((p.mode===mode?'✓ ':'')+label,23,z,344,()=>set({mode}),{ghost:p.mode!==mode,h:44});z+=54;}
+    txt('超出预算、触及保留额或无人可派时请示',23,z,12,C.muted);z+=32;
+    btn('单次花费上限：'+p.cap+'灵石',23,z,344,()=>a.input('单次最多花多少灵石（0—10000）',String(p.cap),v=>set({cap:Number(v)})),{ghost:true});z+=58;
+    btn('族库至少保留：'+p.reserve+'灵石',23,z,344,()=>a.input('族库保留额（0—100000）',String(p.reserve),v=>set({reserve:Number(v)})),{ghost:true});z+=70;
+    z=lines('默认保修行：单次最多10灵石，族库保留30。不会自动改变你安排的族人职责；处理结果记在首页族中近况。',23,z,344,12,C.muted,4)+20;
+   }else if(sh.kind==='event'){
     const e=s.pending;image(e.art,21,z,348,117);z+=134;txt(e.title,22,z,22,C.ink,true);z+=37;z=lines(e.body,22,z,346,14,C.muted,4)+17;
     for(const o of e.options){const h=62;box(20,z,350,h,C.paper,10,C.line);txt(o.label,34,z+11,15,C.green,true);lines(o.detail,34,z+35,321,11,C.muted,1);hit('事件:'+o.label,20,z,350,h,action('resolve',o.id));z+=72;}
+    if(e.kind==='harvest'){btn('设置族务托管',23,z,344,()=>{a.sheet={kind:'policy'};a.sheetScroll=0;a.draw();},{ghost:true,h:44});z+=58;}
    }else if(sh.kind==='person'){
     const p=E.person(s,sh.id);if(!p){a.sheet=null;return;}
     portrait(p,23,z,34);txt(p.name,110,z+3,23,C.ink,true);txt(E.age(p)+'岁 / 寿元'+E.lifespan(p)+' · '+E.REALMS[p.realm],110,z+36,12,C.muted);z+=82;

@@ -87,7 +87,7 @@
   function addPerson(s,data){
     const p=Object.assign({id:'p'+s.nextId++,name:s.surname+'怀安',sex:'m',ageMonths:0,realm:0,progress:0,root:0,rootKnown:false,health:100,insight:0,job:'rest',alive:true,generation:2,parents:[],partner:null,cooldown:0,personalCap:0,jobLocked:false},data);
     if(/[·・\s]+\d+$/u.test(p.name)||allPeople(s).some(q=>q.name===p.name))p.name=uniqueName(s,p.sex,p.name.startsWith(s.surname)?s.surname:p.name.startsWith('客卿')?'陆':p.name.slice(0,1),p.id);
-    p.arts=p.arts||{};assignAppearance(s,p);s.people.push(p);return p;
+    p.arts=p.arts||{};for(const record of Object.values(p.arts)){record.potentialVersion=1;record.legacyTier=record.legacyTier||0;}assignAppearance(s,p);s.people.push(p);return p;
   }
   function create(opts){
     opts=opts||{};const origin=ORIGINS[opts.origin]?opts.origin:'humble',o=ORIGINS[origin];
@@ -100,7 +100,7 @@
     addPerson(s,{name:surname+'伯远',sex:'m',ageMonths:60*12,realm:0,root:0,rootKnown:true,job:origin==='martial'?'guard':'farm',generation:1});
     addPerson(s,{name:surname+'小满',sex:'f',ageMonths:8*12,root:quality(s,20),job:'rest',generation:2});
     milestone(s,'founder','开族立业','守拙筑基归来，租下青岚山下一处灵田，与你们共立家门。');
-    s.people[0].arts={alchemy:{xp:80,aptitude:70},talisman:{xp:20,aptitude:45}};s.people[1].arts={talisman:{xp:20,aptitude:55}};ensureArts(s);snapshotDuties(s);
+    s.people[0].arts={alchemy:{xp:80,aptitude:70},talisman:{xp:20,aptitude:55}};s.people[1].arts={talisman:{xp:20,aptitude:55}};ensureArts(s);snapshotDuties(s);
     return s;
   }
   const SERVICE_ROLES={escort:{name:'后方护运',realm:1,turns:2,fatal:.015,injury:.06,merit:10},defend:{name:'关隘护阵',realm:4,turns:2,fatal:.04,injury:.12,merit:16},assault:{name:'前线支援',realm:10,turns:3,fatal:.10,injury:.20,merit:26}};
@@ -160,14 +160,52 @@
     if((!c||['completed','declined'].includes(c.status))&&s.turn>=Math.max(v.nextCallTurn,v.exemptUntil||0)&&!s.pending&&!s.ending){const max=Math.max(0,...familyLiving(s).map(p=>p.realm));if(max<1)return;v.serial=(v.serial||0)+1;v.call={id:'qingyue-tide-'+v.serial,title:'北境兽潮·第'+v.serial+'次征召',status:'warning',published:s.turn,openTurn:s.turn+2,deadline:s.turn+5,quota:max>=14?2:1,minRealm:max>=14?6:max>=10?4:1,deferred:false};log(s,'北境兽潮预警','青岳宗通报两季后下达征令，可提前准备人手与粮丹。','major');}
   }
   const ARTS={alchemy:'炼丹',talisman:'制符'},RECIPES={tonic:{name:'养元散',tier:1,herbs:2,cost:6,item:'medicines'},break:{name:'破境丹',tier:2,herbs:6,cost:18,item:'pills'}};
-  function artInfo(p,kind){const record=p.arts?.[kind],xp=record?.xp||0,limit=p.realm>=18?4:p.realm>=14?3:p.realm>=10?2:p.realm>=1?1:0,tier=Math.min(limit,xp>=420?4:xp>=200?3:xp>=80?2:xp>=20?1:0),aptitude=record?.aptitude??(25+parseInt(hash(p.id+'|'+kind),16)%71);return {xp,tier,limit,aptitude,name:tier?['','一阶','二阶','三阶','四阶'][tier]+(kind==='alchemy'?'炼丹师':'符师'):record?'百艺学徒':'尚未入门'};}
-  function ensureArts(s){for(const p of allPeople(s)){if(!p.arts){p.arts={};if(p.id==='p1')p.arts={alchemy:{xp:80,aptitude:70},talisman:{xp:20,aptitude:45}};else if(p.id==='p2'||p.job==='craft')p.arts.talisman={xp:20,aptitude:55};}}}
-  function artXp(p,kind,n){p.arts=p.arts||{};const info=artInfo(p,kind);p.arts[kind]={xp:info.xp+n,aptitude:info.aptitude};}
+  function artInfo(p,kind){const record=p.arts?.[kind],xp=record?.xp||0,realmLimit=p.realm>=18?4:p.realm>=14?3:p.realm>=10?2:p.realm>=1?1:0,aptitude=record?.aptitude??(25+parseInt(hash(p.id+'|'+kind),16)%71),potential=aptitude>=85?4:aptitude>=75?3:aptitude>=60?2:aptitude>=50?1:0,limit=Math.min(realmLimit,Math.max(potential,record?.legacyTier||0)),tier=Math.min(limit,xp>=420?4:xp>=200?3:xp>=80?2:xp>=20?1:0);return {xp,tier,limit,realmLimit,potential,aptitude,name:tier?['','一阶','二阶','三阶','四阶'][tier]+(kind==='alchemy'?'炼丹师':'符师'):record?'百艺学徒':potential?'尚未入门':'缺少入门天分'};}
+
+  function ensureArts(s){for(const p of allPeople(s)){if(!p.arts){p.arts={};if(p.id==='p1')p.arts={alchemy:{xp:80,aptitude:70},talisman:{xp:20,aptitude:55}};else if(p.id==='p2'||p.job==='craft')p.arts.talisman={xp:20,aptitude:55};}for(const record of Object.values(p.arts)){if(record.potentialVersion!==1){record.legacyTier=Math.min(p.realm>=18?4:p.realm>=14?3:p.realm>=10?2:p.realm>=1?1:0,record.xp>=420?4:record.xp>=200?3:record.xp>=80?2:record.xp>=20?1:0);record.potentialVersion=1;}}}}
+  function artXp(p,kind,n){p.arts=p.arts||{};const info=artInfo(p,kind);p.arts[kind]={xp:info.xp+n,aptitude:info.aptitude,legacyTier:p.arts[kind]?.legacyTier||0,potentialVersion:1};}
   function artBusy(s,p){return s.alchemyProject?.alchemistId===p.id;}
   function alchemyPlan(s,recipeId='break',id){const recipe=RECIPES[recipeId];if(!recipe)return {reason:'未知丹方'};if(s.alchemyProject)return {reason:'本炉尚未出丹'};const candidates=living(s).filter(p=>age(p)>=16&&p.realm>=1&&p.health>=60&&p.job!=='outing'&&!artBusy(s,p)&&p.job!=='artisan'&&artInfo(p,'alchemy').tier>=recipe.tier).sort((a,b)=>artInfo(b,'alchemy').tier-artInfo(a,'alchemy').tier||artInfo(b,'alchemy').xp-artInfo(a,'alchemy').xp),who=id?candidates.find(p=>p.id===id):candidates[0];if(!who)return {reason:'需在族地、健康60以上的'+recipe.tier+'阶炼丹师'};if((s.herbs||0)<recipe.herbs)return {reason:'需'+recipe.herbs+'草药'};if(s.resources.stones<recipe.cost)return {reason:'需'+recipe.cost+'灵石'};return {reason:'',who,recipe};}
   function finishAlchemy(s){const project=s.alchemyProject;if(!project)return;if(--project.remaining>0)return;const p=person(s,project.alchemistId),recipe=RECIPES[project.recipe||'break'];if(project.legacy||p?.alive&&!p.departed&&p.health>=60&&p.job==='alchemy'){s[recipe.item]=(s[recipe.item]||0)+1;if(p)artXp(p,'alchemy',8);log(s,'炼丹出炉',(p?p.name:'旧炉')+'炼成'+recipe.name+'一份，收入族库。','major');}else log(s,'丹炉中断','主持者已不在或身体无法继续，已消耗材料不退。','bad');if(p?.alive&&!p.departed&&p.job==='alchemy')p.job=project.oldJob||'rest';s.alchemyProject=null;}
-  function studyArt(s,p,kind,automatic=false){if(!ARTS[kind]||!p||!p.alive||p.departed||age(p)<16||p.realm<1||p.health<60||p.job==='outing'||artBusy(s,p))return '需在族地、健康60以上的16岁修士';if(p.artStudy)return '已在研习百艺';const info=artInfo(p,kind);if(info.tier>=info.limit)return '当前技艺已到境界上限，先突破修为';if(s.resources.stones<12)return '需12灵石置办百艺教材';s.resources.stones-=12;artXp(p,kind,0);p.artStudy={kind,target:info.tier+1,oldJob:p.job,manual:!automatic};p.job='artisan';p.jobLocked=!automatic;log(s,'家族百艺',p.name+'开始研习'+ARTS[kind]+'，每季2灵石，依天分与长辈指点增长熟练度。','major');return null;}
-  function governArts(s){if(s.pending||s.ending||policy(s).mode!=='auto'||s.turn<8||s.people.some(p=>p.artStudy)||lineageTasks(s).matches.length||s.resources.stones<policy(s).reserve+100)return;const desired={alchemy:familyLiving(s).some(p=>p.realm>=10)?2:1,talisman:1},missing=['alchemy','talisman'].find(kind=>!living(s).some(p=>artInfo(p,kind).tier>=desired[kind]));if(!missing)return;const candidates=familyLiving(s).filter(p=>age(p)>=16&&p.realm>=1&&p.root<70&&p.health>=75&&!p.jobLocked&&p.job!=='outing'&&!artBusy(s,p)&&![s.leaderId,s.heirId,s.focusId].includes(p.id)&&!p.office&&artInfo(p,missing).tier<artInfo(p,missing).limit&&(artInfo(p,missing).limit>=desired[missing]||!living(s).some(q=>artInfo(q,missing).tier>=1))).sort((a,b)=>artInfo(b,missing).aptitude-artInfo(a,missing).aptitude);if(candidates[0]&&canFund(s,12,'investment')&&!studyArt(s,candidates[0],missing,true))governRecord(s,'百艺','安排'+candidates[0].name+'研习'+ARTS[missing],12);}
+  function studyArt(s,p,kind,automatic=false){if(!ARTS[kind]||!p||!p.alive||p.departed||age(p)<16||p.realm<1||p.health<60||p.job==='outing'||artBusy(s,p))return '需在族地、健康60以上的16岁修士';if(p.artStudy)return '已在研习百艺';const info=artInfo(p,kind);if(!info.limit)return info.realmLimit?'百艺天分不足50，无法入门此术':'需先入道';if(info.tier>=info.limit)return info.limit<info.realmLimit?'已到此项百艺天分上限':'当前技艺已到境界上限，先突破修为';if(s.resources.stones<12)return '需12灵石置办百艺教材';s.resources.stones-=12;artXp(p,kind,0);p.artStudy={kind,target:info.tier+1,oldJob:p.job,manual:!automatic};p.job='artisan';p.jobLocked=!automatic;log(s,'家族百艺',p.name+'开始研习'+ARTS[kind]+'，每季2灵石，依天分与长辈指点增长熟练度。','major');return null;}
+  function cultivationOutlook(s,p){
+    if(!p||!p.alive||p.departed||p.root>=70||[s.leaderId,s.heirId,s.focusId].includes(p.id)||p.office)return {eligible:false,reason:'关键人物或修行潜力较高，优先保留修行路线'};
+    if(age(p)<18||p.realm<1||p.job==='outing'||artBusy(s,p)||p.health<75||p.cooldown>s.turn||p.jobLocked)return {eligible:false,reason:'需成年、在家且健康，并尊重手动安排'};
+    if(p.realm===18)return {eligible:true,reason:'当前修行已达本版境界上限'};
+    if([9,13,17].includes(p.realm)&&cap(s,p)<=p.realm)return {eligible:false,reason:'正在等待家族传承，尚不能判定个人前景受限'};
+    if((p.breakFailures||0)>=2)return {eligible:true,reason:'多次冲关受挫，先以百艺立足，保留今后再突破的机会'};
+    if([9,13,17].includes(p.realm)&&p.progress>=need(p)*.9&&breakChance(s,p)<governance(s).chance&&(p.stalledSeasons||0)>=12)return {eligible:true,reason:'瓶颈等待累计十二季，当前冲关把握低于族长标准'};
+    if([9,13,17].includes(p.realm)&&p.progress>=need(p)*.9&&breakChance(s,p)<governance(s).chance)return {eligible:false,reason:'当前冲关把握不足，已记录瓶颈等待'+(p.stalledSeasons||0)+'/12季'};
+    return {eligible:false,reason:'仍有正常修行空间，尚未满足自动转修条件'};
+  }
+  function artCareerPlan(s){
+    const maxTier=familyLiving(s).some(p=>p.realm>=10)?2:1,capacity=Math.max(2,Math.ceil(familyLiving(s).filter(p=>age(p)>=18&&p.realm>=1).length/6)),candidates=[];
+    for(const p of familyLiving(s)){const outlook=cultivationOutlook(s,p);for(const kind of Object.keys(ARTS)){const info=artInfo(p,kind),count=living(s).filter(q=>q.artStudy?.kind===kind||(q.artCareer?.kind||(['alchemy','talisman'].sort((a,b)=>artInfo(q,b).tier-artInfo(q,a).tier)[0]))===kind&&artInfo(q,kind).tier>=1).length,need=kind==='alchemy'?maxTier:1,missing=!living(s).some(q=>artInfo(q,kind).tier>=need),exception=!([9,13,17].includes(p.realm)&&cap(s,p)<=p.realm)&&p.cooldown<=s.turn&&!p.artCareer&&(missing||count<capacity)&&p.root>0&&p.root<50&&age(p)>=18&&p.health>=75&&!p.jobLocked&&p.job!=='outing'&&!artBusy(s,p)&&![s.leaderId,s.heirId,s.focusId].includes(p.id)&&!p.office&&info.aptitude>=85;
+      if(p.artCareer&&p.artCareer.kind!==kind)continue;
+      if(missing&&info.limit<need&&living(s).some(q=>artInfo(q,kind).tier>=1))continue;
+      if(p.artStudy||info.aptitude<60||info.tier>=info.limit||(!outlook.eligible&&!exception)||count>=capacity&&!missing)continue;
+      if(info.tier>=1&&p.artCareer?.kind!==kind&&!missing)continue;
+      candidates.push({id:p.id,kind,aptitude:info.aptitude,missing,reason:outlook.eligible?outlook.reason:'修行资质普通，此项百艺天分突出且家族缺少传人',score:info.aptitude+(missing?25:0)+(p.artCareer?.kind===kind?10:0)});
+    }
+    }
+    candidates.sort((a,b)=>b.score-a.score||a.id.localeCompare(b.id));return {candidates,capacity};
+  }
+  function governArtProduction(s){
+    if(s.pending||s.ending||policy(s).mode!=='auto')return;
+    const g=governance(s),wounded=familyLiving(s).filter(p=>p.job!=='outing'&&!artBusy(s,p)&&p.health<85).sort((a,b)=>a.health-b.health);let treated=0;for(const p of wounded){if((s.medicines||0)<1||treated>=2)break;if(!mutate(s,'medicine',{id:p.id})){treated++;governRecord(s,'医疗',p.name+'使用养元散恢复15健康');}}
+    if(s.alchemyProject){s.artProductionWait='丹师正在主持'+RECIPES[s.alchemyProject.recipe||'break'].name+'，出炉后再安排';return;}
+    const target=g.trait==='frugal'?1:g.trait==='ambitious'?3:2,urgent=wounded.some(p=>p.health<65)||g.trait==='benevolent'&&wounded.length>0,recipeId=urgent&&(s.medicines||0)<2?'tonic':(s.pills||0)<target?'break':wounded.length&&(s.medicines||0)<2?'tonic':null;
+    if(!recipeId){s.artProductionWait='丹药储备已满足当前方针，丹师暂时休养待命';return;}
+    let plan=alchemyPlan(s,recipeId);if(plan.reason&&recipeId==='break'&&wounded.length&&(s.medicines||0)<2)plan=alchemyPlan(s,'tonic');
+    if(plan.reason){s.artProductionWait=plan.reason;return;}if(!canFund(s,plan.recipe.cost,'investment')){s.artProductionWait='等待积蓄，炼丹须遵守族库保留与族长投入比例';return;}
+    const id=Object.entries(RECIPES).find(([id,r])=>r===plan.recipe)[0];if(!mutate(s,'alchemy',{recipe:id,id:plan.who.id})){s.artProductionWait=plan.who.name+'按库存缺口主持'+plan.recipe.name;governRecord(s,'炼丹',s.artProductionWait,plan.recipe.cost);}
+  }
+  function governArts(s){
+    governArtProduction(s);if(s.pending||s.ending)return;if(policy(s).mode!=='auto'){s.artCareerWait='当前亲自接管，族长暂停新增转修安排';return;}if(s.turn<8){s.artCareerWait='开族前两年先稳定家计，之后评估转修';return;}if(living(s).some(p=>p.artStudy)){s.artCareerWait='已有族人在研习，结业后再培养下一位';return;}if(lineageTasks(s).matches.length){s.artCareerWait='先处理适龄婚配，再投入新的百艺培养';return;}if(s.resources.stones<policy(s).reserve+100){s.artCareerWait='百艺培养需族库达到'+(policy(s).reserve+100)+'灵石，先保留家用与培养储备';return;}if(s.resources.food<forecast(s).foodCost*3){s.artCareerWait='先保留三季口粮，再安排脱产研习';return;}
+    const chosen=artCareerPlan(s).candidates[0];if(!chosen){s.artCareerWait='暂无同时满足修行前景、百艺天分和家族需求的转修人选';return;}
+    const p=person(s,chosen.id);if(canFund(s,12,'investment')&&!studyArt(s,p,chosen.kind,true)){p.artCareer={kind:chosen.kind,reason:chosen.reason,turn:s.turn};s.artCareerWait=p.name+'转修'+ARTS[chosen.kind]+'：'+chosen.reason;governRecord(s,'百艺转修',s.artCareerWait+'；百艺天分'+chosen.aptitude,12);}
+  }
+
   function forecast(s){
     const ps=living(s),workers=ps.filter(p=>p.job!=='outing'&&p.health>20);
     const farm=workers.filter(p=>p.job==='farm'&&age(p)>=12).length;
@@ -196,7 +234,7 @@
     return s.resources.stones<cost?'需要 '+cost+' 灵石':'';
   }
   function recommendedJob(s,p){
-    if(artBusy(s,p))return 'alchemy';if(p.artStudy)return 'artisan';
+    if(artBusy(s,p))return 'alchemy';if(p.artStudy)return 'artisan';if(p.artCareer&&artInfo(p,p.artCareer.kind).tier>=1)return p.artCareer.kind==='talisman'&&s.buildings.workshop?'craft':'rest';
     if(p.health<60||p.warRecoveryUntil&&p.health<85)return 'rest';
     if(p.rootKnown&&p.root>=50&&age(p)>=6)return 'training';
     if(age(p)>=16&&p.realm>=1&&s.buildings.workshop&&artInfo(p,'talisman').tier>=1)return 'craft';
@@ -213,6 +251,7 @@
       before.set(p.id,p.job);let job='rest',why='年幼留在族中照料';
       if(p.health<60||p.cooldown>s.turn||p.warRecoveryUntil&&p.health<85){why=p.cooldown>s.turn?(p.warRecoveryUntil>s.turn?'战伤未愈，先行休养':'冲关后需调养，先行休养'):'健康不足，先行休养';}
       else if(p.artStudy){job='artisan';why='研习家传百艺，达成下一阶后结业';}
+      else if(p.artCareer&&artInfo(p,p.artCareer.kind).tier>=1){job=p.artCareer.kind==='talisman'&&s.buildings.workshop?'craft':'rest';why=p.artCareer.kind==='talisman'?'已转修符道，按家族需求主持符坊':'已转修丹道，按库存安排开炉，其余时间休养待命';}
       else if(p.affiliation==='retainer'){job=s.buildings.workshop&&artInfo(p,'talisman').tier>=1?'craft':'guard';why=job==='craft'?'供奉主持符坊，以技艺履约':'供奉受聘守备，护持族地';}
       else if(p.office==='supreme'||p.office==='elder'){job='training';why=p.office==='supreme'?'太上长老坐镇传功，兼修自身道途':'长老主修传功，照拂族中后辈';}
       else if(age(p)>=6){
@@ -227,7 +266,7 @@
       if(job==='training'&&p.progress>=need(p)){job=s.buildings.school?'study':'rest';why=s.buildings.school?'修为已满，先入族学积累悟性':'修为已满，暂歇等待突破，避免重复投入';}
       p.job=job;reasons.set(p.id,why);
     }
-    const labour=managed.filter(p=>!p.artStudy&&p.health>=60&&!p.office&&age(p)>=12&&(!p.rootKnown||p.root<70)).sort((a,b)=>Number(b.rootKnown)-Number(a.rootKnown)||a.root-b.root||a.realm-b.realm);
+    const labour=managed.filter(p=>!p.artStudy&&!p.artCareer&&p.health>=60&&!p.office&&age(p)>=12&&(!p.rootKnown||p.root<70)).sort((a,b)=>Number(b.rootKnown)-Number(a.rootKnown)||a.root-b.root||a.realm-b.realm);
     for(const p of labour){const f=forecast(s);if(s.resources.food>=f.foodCost*2||f.food>=f.foodCost)break;if(p.job==='farm')continue;p.job='farm';reasons.set(p.id,'存粮不足，先补齐耕作人手');}
     for(const p of labour){const f=forecast(s);if(s.resources.stones>=reserve||f.income>=f.upkeep+f.training)break;const job=!trainingReason(s,p,'craft')?'craft':'farm';if(p.job===job)continue;p.job=job;reasons.set(p.id,'族库吃紧，先安排能带来进项的职责');}
     if(['ambitious','prudent'].includes(trait)&&!ps.some(p=>p.job==='guard')){
@@ -324,7 +363,7 @@
   function governDevelopment(s){
     if(s.pending||s.ending||policy(s).mode!=='auto')return 0;const g=governance(s);let spent=0;
     if(!s.focusManual){const candidates=talentCandidates(s).filter(p=>p.root>=g.root&&p.health>=60&&p.job!=='outing'&&!artBusy(s,p)&&!p.jobLocked);const chosen=candidates[0];if(chosen&&s.focusId!==chosen.id){s.focusId=chosen.id;governRecord(s,'培养','选定'+chosen.name+'为重点培养对象');log(s,'族长安排培养',g.name+'方针下重点培养'+chosen.name+'。','major');}else if(!chosen)s.focusId=null;}
-    const ps=living(s).filter(p=>[9,13,17].includes(p.realm)&&p.progress>=need(p)&&!p.breakthroughManual&&p.job!=='outing').sort((a,b)=>{const priority=p=>p.cooldown>s.turn||p.health<65?3:cap(s,p)<=p.realm?2:breakChance(s,p)<g.chance?1:0;return priority(a)-priority(b)||Number(b.id===s.focusId)-Number(a.id===s.focusId)||b.root-a.root;}),p=ps[0];
+    const ps=living(s).filter(p=>[9,13,17].includes(p.realm)&&p.progress>=need(p)&&!p.breakthroughManual&&!p.artCareer&&p.job!=='outing').sort((a,b)=>{const priority=p=>p.cooldown>s.turn||p.health<65?3:cap(s,p)<=p.realm?2:breakChance(s,p)<g.chance?1:0;return priority(a)-priority(b)||Number(b.id===s.focusId)-Number(a.id===s.focusId)||b.root-a.root;}),p=ps[0];
     if(!p){s.developmentWait='族人按分工修行，圆满后自动检查突破';return spent;}
     if(p.cooldown>s.turn||p.health<65){s.developmentWait=p.name+'等待伤势与调养恢复';if(!p.jobLocked){p.job='rest';p.jobReason='族长安排休养，恢复后再筹备突破';}return spent;}
     if(cap(s,p)<=p.realm){const why=bookReason(s),cost=bookCost(s);if(!why&&canFund(s,cost,'investment')){mutate(s,'book');spent+=cost;governRecord(s,'传承','为'+p.name+'整理下一卷家传',cost);}s.developmentWait=p.name+'等待下一境界传承'+(s.project?.kind==='book'?'续成':'，需按政策积蓄至'+Math.ceil(cost/g.rate+g.reserve+g.buffer)+'灵石');return spent;}
@@ -408,7 +447,7 @@
     if(s.ending)return wait('本世已结束');if(s.service?.active)return wait('家族正在履行征召，暂停自动历练以保留留守人手');if(policy(s).mode!=='auto')return wait('当前亲自接管，自动派队暂停');if(s.pending)return wait('先处理待议族事');
     if(s.missions.some(m=>m.teamIds))return wait('已有队伍在外，归来后再评估');
     const remaining=Math.max(4-s.turn,limits.cadence-(s.turn-(s.lastExpeditionTurn||0)),0);if(remaining)return wait('距离下次派队评估还需'+remaining+'季');
-    const available=living(s).filter(p=>p.id!==s.leaderId&&p.id!==s.heirId&&p.id!==s.focusId&&!p.jobLocked&&p.root<85&&age(p)>=16&&p.realm>=1&&p.health>=85&&p.job!=='outing'&&!artBusy(s,p)&&!p.artStudy&&p.office!=='supreme').sort((a,b)=>realmPower(b.realm)-realmPower(a.realm)).slice(0,3);
+    const available=living(s).filter(p=>p.id!==s.leaderId&&p.id!==s.heirId&&p.id!==s.focusId&&!p.jobLocked&&p.root<85&&age(p)>=16&&p.realm>=1&&p.health>=85&&p.job!=='outing'&&!artBusy(s,p)&&!p.artStudy&&!p.artCareer&&p.office!=='supreme').sort((a,b)=>realmPower(b.realm)-realmPower(a.realm)).slice(0,3);
     if(!available.length)return wait('暂无可自动派出的修士：需成年、健康85以上，且不是受保护或手动安排的族人');
     const food=forecast(s).foodCost*2+available.length*8;if(s.resources.food<food)return wait('存粮需至少'+food+'（两季口粮及行装），当前'+Math.floor(s.resources.food));
     const plans=Object.keys(MAPS).map(id=>({id,...expeditionPlan(s,id,available.map(p=>p.id))})).filter(p=>!p.reason&&p.risk<=limits.risk);
@@ -437,7 +476,7 @@
   function hireRetainer(s,automatic=false,specialty='talisman'){if(!ARTS[specialty])return '未知供奉技艺';
     if(living(s).length+s.pregnancies.length>=96||allPeople(s).length>=4997)return '族谱或人数容量不足';const max=Math.max(...familyLiving(s).map(p=>p.realm),0),realm=max>=14&&s.renown>=50?14:10,cost=(realm>=14?180:60)+(specialty==='alchemy'?20:0);
     if(s.renown<20)return '族望达到20后可邀请供奉';if(living(s).filter(p=>p.affiliation==='retainer').length>=2)return '本版最多供养两位外来供奉';if(s.resources.stones<cost)return '需'+cost+'灵石聘金';if(automatic&&!canFund(s,cost+(realm>=14?80:32),'investment'))return '政策要求预留聘金及供养';
-    s.resources.stones-=cost;const p=addPerson(s,{name:'客卿·'+(realm>=14?'玄衡':'云川'),sex:'m',ageMonths:45*12,realm,root:60,rootKnown:true,job:'guard',generation:s.generation,affiliation:'retainer',origin:'外聘供奉',arts:{[specialty]:{xp:realm>=14?200:80,aptitude:65}},office:'guest'});log(s,'供奉入驻',p.name+'以'+REALMS[realm]+'修为受聘，聘金'+cost+'灵石，每季额外供养'+officeUpkeep(p)+'灵石；不直接进入血亲主谱。','major');governRecord(s,'供奉','聘请'+p.name,cost);return null;
+    s.resources.stones-=cost;const p=addPerson(s,{name:'客卿·'+(realm>=14?'玄衡':'云川'),sex:'m',ageMonths:45*12,realm,root:60,rootKnown:true,job:'guard',generation:s.generation,affiliation:'retainer',origin:'外聘供奉',arts:{[specialty]:{xp:realm>=14?200:80,aptitude:realm>=14?80:65}},office:'guest'});log(s,'供奉入驻',p.name+'以'+REALMS[realm]+'修为受聘，聘金'+cost+'灵石，每季额外供养'+officeUpkeep(p)+'灵石；不直接进入血亲主谱。','major');governRecord(s,'供奉','聘请'+p.name,cost);return null;
   }
   function governRetainers(s){if(s.pending||s.ending||policy(s).mode!=='auto')return;const g=governance(s);const guests=living(s).filter(p=>p.affiliation==='retainer'),max=Math.max(0,...familyLiving(s).map(p=>p.realm));if(['ambitious','prudent'].includes(g.trait)&&s.renown>=20&&max>=10&&(guests.length===0||max>=14&&s.renown>=50&&guests.length<2&&!guests.some(p=>p.realm>=14)))hireRetainer(s,true);}
   function familySupport(s){const seniors=living(s).filter(p=>p.realm>=10&&p.health>=60&&p.job!=='outing'&&!artBusy(s,p));const elders=living(s).filter(p=>p.office==='elder'&&p.health>=60&&p.job!=='outing'&&!artBusy(s,p)).length,supreme=living(s).some(p=>p.office==='supreme'&&p.health>=60&&p.job!=='outing'&&!artBusy(s,p));return {seniors:seniors.length,elders,supreme,training:Math.min(2,seniors.length)*2+Math.min(2,elders)+(supreme?2:0)};}
@@ -570,6 +609,7 @@
     const ps=living(s);for(const p of ps.filter(p=>p.affiliation==='retainer')){p.payArrears=upkeep<f.upkeep?(p.payArrears||0)+1:0;if(p.payArrears>=4){p.departed=true;p.departedTurn=s.turn;p.job='rest';log(s,'供奉离族',p.name+'因连续四季供养不足而离去，并非死亡。','major');}}
     for(const p of ps){
       if(p.departed)continue;
+      if(p.lastObservedRealm!==p.realm){p.lastObservedRealm=p.realm;p.stalledSeasons=0;}else if(p.job!=='outing'&&!artBusy(s,p)&&p.health>=65&&p.progress>=need(p)*.9&&[9,13,17,18].includes(p.realm))p.stalledSeasons=(p.stalledSeasons||0)+1;
       p.ageMonths+=3;if(!p.rootKnown&&age(p)>=6&&!p.rootNotice){p.rootNotice=true;log(s,'后辈待测灵',p.name+'已满六岁，可花5灵石测灵，为后续培养择路。','major');}if(shortage)p.health=Math.max(0,p.health-4);
       if(p.job==='rest')p.health=Math.min(100,p.health+8);
       if(age(p)>=lifespan(p)){diePerson(s,p,'寿元耗尽');continue;}
@@ -598,7 +638,7 @@
     if(shortage){s.harmony=Math.max(0,s.harmony-4);log(s,'供给不足','本季维护或粮食不足，族人健康与和睦受到影响。','bad');}
     else s.harmony=Math.min(100,s.harmony+.5);
     if(s.turn%4===0)s.renown=Math.min(100,s.renown+1);
-    checkLeader(s);updateStage(s);assignOffices(s);manageJobs(s);const familyBefore=r.stones;if(governance(s).first==='development'){governDevelopment(s);runLineage(s);}else{runLineage(s);governDevelopment(s);}ledger.family+=Math.max(0,familyBefore-r.stones);randomEvent(s);const routineBefore=r.stones;autoRoutine(s);ledger.family+=Math.max(0,routineBefore-r.stones);manageJobs(s);const worldBefore=r.stones;governWorld(s);assignOffices(s);governRetainers(s);governArts(s);ledger.family+=Math.max(0,worldBefore-r.stones);compactArchives(s);
+    checkLeader(s);updateStage(s);assignOffices(s);manageJobs(s);const familyBefore=r.stones;if(governance(s).first==='development'){governDevelopment(s);runLineage(s);}else{runLineage(s);governDevelopment(s);}ledger.family+=Math.max(0,familyBefore-r.stones);randomEvent(s);const routineBefore=r.stones;autoRoutine(s);ledger.family+=Math.max(0,routineBefore-r.stones);manageJobs(s);const worldBefore=r.stones;assignOffices(s);governRetainers(s);governArts(s);governWorld(s);ledger.family+=Math.max(0,worldBefore-r.stones);compactArchives(s);
     return '时光流转，一季已过。';
   }
   function resolve(s,id){
@@ -639,7 +679,7 @@
     if(s.pending)return '请先处理当前族中大事';
     const p=person(s,a&&a.id||a);
     if(type==='management'){if(a==='enable'){s.managementEnabled=true;for(const q of living(s))if(q.job!=='outing')q.jobLocked=false;s.policy=Object.assign({},policy(s),{mode:'auto'});manageJobs(s,true);return null;}if(a&&a.mode==='release'){if(!p||!p.alive||p.departed||p.job==='outing')return '请待族人在族地时再交接';p.jobLocked=false;s.managementEnabled=true;manageJobs(s,true);return null;}return '无效的统筹安排';}
-    if(type==='focus'){if(a==='auto'){s.focusManual=false;return null;}if(a==='clear'){s.focusId=null;s.focusManual=true;return null;}if(!p||!p.alive||!p.rootKnown||!p.root||age(p)<6||p.realm>=10||p.job==='outing'||artBusy(s,p)||p.health<60)return '请选择在族地、健康60以上、已测出灵根的炼气及以下族人';s.focusId=p.id;s.focusManual=true;p.job='training';p.jobLocked=false;log(s,'重点培养',p.name+'列为重点培养对象，修行时优先追加4灵石、增加6修为；不触及族库保留额。','major');manageJobs(s);return null;}
+    if(type==='focus'){if(a==='auto'){s.focusManual=false;return null;}if(a==='clear'){s.focusId=null;s.focusManual=true;return null;}if(!p||!p.alive||!p.rootKnown||!p.root||age(p)<6||p.realm>=10||p.job==='outing'||artBusy(s,p)||p.health<60)return '请选择在族地、健康60以上、已测出灵根的炼气及以下族人';s.focusId=p.id;s.focusManual=true;delete p.artCareer;delete p.artStudy;p.job='training';p.jobLocked=false;log(s,'重点培养',p.name+'列为重点培养对象，修行时优先追加4灵石、增加6修为；不触及族库保留额。','major');manageJobs(s);return null;}
     if(type==='development'){if(!p||!p.alive||p.departed)return '族人已不在';p.breakthroughManual=!p.breakthroughManual;return null;}
     if(type==='lineage'){if(a==='recruit'||a==='adopt')return addLineageMember(s,a);if(a&&a.id){const q=person(s,a.id);if(!q||!q.alive)return '族人已不在';if(q.marriageManual||(q.marriageHoldUntil||0)>s.turn){q.marriageManual=false;q.marriageHoldUntil=0;}else q.marriageManual=true;return null;}return '无效的家族延续安排';}
     if(type==='service')return serviceAction(s,a||{});
@@ -654,14 +694,14 @@
     if(type==='office'){if(!p)return '族人不存在';if(p.affiliation==='retainer'&&a.role==='dismiss'){if(p.job==='outing')return '请待供奉归来后再解约';p.departed=true;p.departedTurn=s.turn;p.job='rest';log(s,'供奉解约',p.name+'已解除聘约，任职记录保留。','major');return null;}if(p.affiliation==='retainer'&&a.role!=='guest'&&a.role!=='auto')return '供奉须维持聘约或明确解约';if(a.role==='auto'){p.officeManual=false;assignOffices(s);return null;}const why=officeReason(s,p,a.role);if(why)return why;if(a.role&&living(s).filter(q=>q.id!==p.id&&q.office===a.role).length>=(a.role==='supreme'?1:a.role==='elder'?3:2))return '职位名额已满';p.office=a.role||null;p.officeManual=true;governRecord(s,'族职','玩家指定'+p.name+'：'+(OFFICES[p.office]?.name||'免职'));return null;}
     if(type==='expedition')return startExpedition(s,a||{});
     if(type==='migrate')return migrate(s);
-    if(type==='art')return studyArt(s,p,a.kind);
+    if(type==='art'){const why=studyArt(s,p,a.kind);if(!why){p.artCareer={kind:a.kind,reason:'玩家手动指定百艺路线',turn:s.turn};}return why;}
     if(type==='medicine'){if(!p||!p.alive||p.departed||p.job==='outing'||artBusy(s,p))return '请待族人在族地休养';if((s.medicines||0)<1)return '族库没有养元散';if(p.health>=100)return '健康已满';s.medicines--;p.health=Math.min(100,p.health+15);return null;}
     if(type==='alchemy'){const plan=alchemyPlan(s,a?.recipe||'break',a?.id);if(plan.reason)return plan.reason;s.herbs-=plan.recipe.herbs;s.resources.stones-=plan.recipe.cost;s.alchemyProject={remaining:1,alchemistId:plan.who.id,recipe:a?.recipe||'break',oldJob:plan.who.job};plan.who.job='alchemy';log(s,'开炉炼丹',plan.who.name+'主持炼制'+plan.recipe.name+'，下一季检查出炉；期间不兼任其他工作。');return null;}
 
     if(type==='pill'){if(s.resources.stones<35)return '需35灵石';s.resources.stones-=35;s.pills++;return null;}
     if(type==='break'){const why=breakReason(s,p);if(why)return why;s.pills--;const success=rand(s)<breakChance(s,p);p.progress=success?0:need(p)*.5;
-      if(success){p.realm++;if(p.realm>=10&&s.focusId===p.id){s.focusId=null;s.focusManual=false;}p.health=Math.min(100,p.health+12);log(s,'破境有成',p.name+'踏入'+REALMS[p.realm]+'。','major');milestone(s,'break'+p.realm,'仙道传承',p.name+'踏入'+REALMS[p.realm]+'。');}
-      else{p.health=Math.max(1,p.health-22);p.cooldown=s.turn+4;log(s,'冲关未成',p.name+'受了内伤，四季内需静养；丹药已消耗。','bad');}
+      if(success){p.realm++;p.breakFailures=0;p.stalledSeasons=0;if(p.realm>=10&&s.focusId===p.id){s.focusId=null;s.focusManual=false;}p.health=Math.min(100,p.health+12);log(s,'破境有成',p.name+'踏入'+REALMS[p.realm]+'。','major');milestone(s,'break'+p.realm,'仙道传承',p.name+'踏入'+REALMS[p.realm]+'。');}
+      else{p.breakFailures=(p.breakFailures||0)+1;p.health=Math.max(1,p.health-22);p.cooldown=s.turn+4;log(s,'冲关未成',p.name+'受了内伤，四季内需静养；丹药已消耗。','bad');}
       event(s,'ack',success?'破境有成':'暂缓锋芒',success?p.name+'跨过了关口，寿元与修行上限随之改变。在族地且健康足够时可指导后辈；主持符坊时额外增加3灵石进项。':p.name+'冲关失败，修为折损，须先养好伤势。',[{id:'ok',label:success?'道途更远':'安心调养',detail:'回到家族'}],'breakthrough');updateStage(s);return null;}
     if(type==='mission'){const q=person(s,a.id);if(!q||!q.alive||q.departed||age(q)<16||q.realm<1||q.job==='outing'||q.health<60||artBusy(s,q))return '需在族地、年满16岁且健康60以上的修士';if(s.pregnancies.some(x=>x.mother===q.id))return '有孕族人留在族地休养';if(s.resources.food<8)return '需8粮食作行装';
       const danger=a.risk==='ruin';s.resources.food-=8;s.missions.push({personId:q.id,started:s.turn,due:s.turn+1,oldJob:q.job,roll:rand(s),risk:danger?.32:.08,reward:danger?26:12});q.job='outing';log(s,'出门历练',q.name+'前往'+(danger?'古迹（较险）':'山间采药（较稳）')+'，一季后回返。');return null;}
@@ -697,7 +737,7 @@
   function save(s){validate(s);const body=JSON.stringify(s);return JSON.stringify({version:VERSION,hash:hash(body),body});}
   function hash(str){let v=2166136261;for(let i=0;i<str.length;i++)v=Math.imul(v^str.charCodeAt(i),16777619);return (v>>>0).toString(16);}
   function load(text){const d=JSON.parse(text);if(!d||typeof d.body!=='string'||d.hash!==hash(d.body))throw Error('存档校验未通过');const s=validate(JSON.parse(d.body));repairNames(s);ensureArts(s);if(s.alchemyProject&&!s.alchemyProject.alchemistId)s.alchemyProject.legacy=true;for(const p of allPeople(s)){const spouse=person(s,p.partner);if(p.origin==='外姓姻亲'&&spouse&&!p.branchOriginId){p.branchOriginId=spouse.branchOriginId||branchKey(s,spouse);if(spouse.realm===0&&spouse.root===0&&!spouse.branchOriginId)spouse.branchOriginId=p.branchOriginId;}}if(s.officeVersion!==1){if(s.leaderId!=='p1'){const founder=person(s,'p1');if(founder)founder.formerLeader=true;}s.officeVersion=1;}if(s.governanceVersion!==1){s.managementEnabled=true;s.governanceVersion=1;s.focusManual=!!s.focusId;}if(!s.managementReview&&!s.ending)snapshotDuties(s);compactArchives(s);for(const p of allPeople(s)){assignAppearance(s,p);const spouse=person(s,p.partner);if(p.alive&&spouse&&!spouse.alive){p.pastPartners=p.pastPartners||[];if(!p.pastPartners.some(q=>q.id===spouse.id))p.pastPartners.push({id:spouse.id,turn:spouse.diedTurn??s.turn});p.partner=null;}}return s;}
-  return {VERSION,REALMS,ARTS,RECIPES,artInfo,alchemyPlan,studyArt,SERVICE_ROLES,serviceInfo,servicePlan,serviceRecommendation,OFFICES,officeReason,officeUpkeep,MAPS,TERRITORIES,territory,bookCost,autoExpeditionPlan,expeditionPolicy,expeditionPlan,migrationReason,ORIGINS,BUILDINGS,buildingLimit,buildingPlan,buildingEffect,JOBS,BOOKS,SEASONS,create,dispatch,save,load,validate,living,familyLiving,allPeople,genealogy,branchKey,person,age,lifespan,need,cap,rootName,forecast,stageName,governance,familyAgeLimit,marriageCost,familyPlan,populationReport,mortalBranches,lineageTasks,lineageStatus,areRelated,familySupport,talentCandidates,breakthroughPlan,portraitSpec,manageJobs,policy,PERSONALITIES,temperament,ROUTINE_KINDS,recommendedJob,sortedPeople,buildReason,bookReason,trainingReason,breakReason,breakChance};
+  return {VERSION,REALMS,ARTS,RECIPES,artInfo,alchemyPlan,studyArt,cultivationOutlook,artCareerPlan,SERVICE_ROLES,serviceInfo,servicePlan,serviceRecommendation,OFFICES,officeReason,officeUpkeep,MAPS,TERRITORIES,territory,bookCost,autoExpeditionPlan,expeditionPolicy,expeditionPlan,migrationReason,ORIGINS,BUILDINGS,buildingLimit,buildingPlan,buildingEffect,JOBS,BOOKS,SEASONS,create,dispatch,save,load,validate,living,familyLiving,allPeople,genealogy,branchKey,person,age,lifespan,need,cap,rootName,forecast,stageName,governance,familyAgeLimit,marriageCost,familyPlan,populationReport,mortalBranches,lineageTasks,lineageStatus,areRelated,familySupport,talentCandidates,breakthroughPlan,portraitSpec,manageJobs,policy,PERSONALITIES,temperament,ROUTINE_KINDS,recommendedJob,sortedPeople,buildReason,bookReason,trainingReason,breakReason,breakChance};
 });
 
 </script><script>
@@ -801,7 +841,7 @@
    btn('上一页族人',18,y,105,()=>{a.peoplePage=page-1;a.scroll=0;a.draw();},{ghost:true,disabled:page===0});txt((page+1)+' / '+pages+' · '+sorted.length+'人',195,y+15,12,C.gold,true,'center');btn('下一页族人',267,y,105,()=>{a.peoplePage=page+1;a.scroll=0;a.draw();},{ghost:true,disabled:page===pages-1});y+=59;
    const members=sorted.slice(page*6,page*6+6);
    if(!members.length){card(y,110);txt('这一页暂时没有族人',195,y+35,15,C.muted,false,'center');y+=130;}
-   for(const p of members){card(y,103);portrait(p,29,y+19,28);fitText(p.name,101,y+15,166,16,p.alive?C.ink:C.muted,true);txt(E.age(p)+'岁 · '+E.REALMS[p.realm],101,y+41,12,C.muted);let tag=p.id===s.leaderId?'族长':p.id===s.heirId?'继承人':!p.alive?'已故':p.office?E.OFFICES[p.office].name:E.JOBS[p.job];badge(tag,275,y+14);txt(E.rootName(p),101,y+68,11,C.muted);progress(250,y+73,103,p.progress/E.need(p));hit('族人:'+p.name,17,y,356,103,()=>a.openPerson(p.id));y+=114;}
+   for(const p of members){card(y,103);portrait(p,29,y+19,28);fitText(p.name,101,y+15,166,16,p.alive?C.ink:C.muted,true);txt(E.age(p)+'岁 · '+E.REALMS[p.realm],101,y+41,12,C.muted);let tag=p.id===s.leaderId?'族长':p.id===s.heirId?'继承人':!p.alive?'已故':p.office?E.OFFICES[p.office].name:p.artCareer?.kind==='alchemy'&&p.job==='rest'?'丹师待命':E.JOBS[p.job];badge(tag,275,y+14);txt(E.rootName(p),101,y+68,11,C.muted);progress(250,y+73,103,p.progress/E.need(p));hit('族人:'+p.name,17,y,356,103,()=>a.openPerson(p.id));y+=114;}
    if(a.filter==='dead'){btn('去祖祠查看全部历史人物',18,y,354,()=>{a.genealogyTab='ancestors';a.genealogyPage=0;a.setTab('history');},{ghost:true});y+=57;}
    txt('点击族人，安排职责、测灵或指定继承人',195,y+7,11,C.muted,false,'center');y+=38;
   }else if(a.tab==='industry'){
@@ -915,16 +955,21 @@
     btn('族库至少保留：'+p.reserve+'灵石',23,z,344,()=>a.input('族库保留额（0—100000）',String(p.reserve),v=>set({reserve:Number(v)})),{ghost:true});z+=65;
     z=lines('自动模式离开页面后按时长补算，最多8小时，年龄与寿元同步推进；遇重大族事暂停。族长选择记在族中近况。',23,z,344,12,C.muted,4)+20;
    }else if(sh.kind==='arts'){
+    txt('族长统筹 · '+E.governance(s).name,23,z,18,C.ink,true);z+=33;z=lines(E.policy(s).mode==='auto'?'按库存自动开炉、用药与安排符师；长期修行受限者，有百艺天分才考虑转修。':'当前亲自接管，族长暂停新增百艺安排；已有工作仍按季推进。',23,z,344,12,C.muted,4)+16;
+    if(s.artProductionWait)z=lines('最近生产安排：'+s.artProductionWait,23,z,344,12,C.green,3)+14;
+    if(s.artCareerWait)z=lines('最近转修判断：'+s.artCareerWait,23,z,344,12,C.gold,3)+16;
     txt('养元散 '+(s.medicines||0)+' · 护身符 '+(s.talismans||0),23,z,18,C.green,true);z+=33;z=lines('技艺按熟练度与修为分一至四阶。学徒研习家传，每季2灵石；炼制、制符也增长熟练度。主持丹炉期间不兼任修行、劳动或出征。',23,z,344,12,C.muted,4)+18;
     for(const [id,recipe] of Object.entries(E.RECIPES)){const plan=E.alchemyPlan(s,id);txt(recipe.name+' · '+recipe.tier+'阶丹方',23,z,17,C.ink,true);z+=28;z=lines(recipe.herbs+'草药＋'+recipe.cost+'灵石；'+(plan.who?'推荐主持：'+plan.who.name:plan.reason),23,z,344,12,C.muted,2)+13;btn('炼制：'+recipe.name,23,z,344,()=>{if(plan.reason)a.toast(plan.reason);else a.confirm(plan.who.name+'主持炼制'+recipe.name+'，消耗'+recipe.herbs+'草药、'+recipe.cost+'灵石，需一季；无法继续主持会中断。',()=>a.act('alchemy',{recipe:id,id:plan.who.id}));},{ghost:!!plan.reason});z+=57;}
     z=lines('养元散供归家族人恢复15健康。符师在符坊制符有商售进项，同时每季留存与阶位相等的护身符；坊费含符纸朱砂。征召自动携带每人至多1枚，整队风险最多降低10%，不会重复扣符。',23,z,344,12,C.muted,5)+19;
     const people=E.familyLiving(s).filter(p=>Object.keys(p.arts||{}).length||p.artStudy).concat(E.living(s).filter(p=>p.affiliation==='retainer'&&(Object.keys(p.arts||{}).length||p.artStudy))),pages=Math.max(1,Math.ceil(people.length/6)),page=Math.min(a.artPage||0,pages-1);a.artPage=page;txt('百艺族人 · '+people.length,23,z,18,C.ink,true);z+=33;if(pages>1){btn('百艺上页',23,z,110,()=>{a.artPage=page-1;a.draw();},{ghost:true,disabled:!page});txt((page+1)+'/'+pages,195,z+15,12,C.gold,true,'center');btn('百艺下页',257,z,110,()=>{a.artPage=page+1;a.draw();},{ghost:true,disabled:page===pages-1});z+=57;}
     for(const p of people.slice(page*6,page*6+6)){btn(p.name+' · '+Object.keys(p.arts||{}).map(kind=>E.artInfo(p,kind).name).join(' / '),23,z,344,()=>{a.sheet={kind:'artisan',id:p.id};a.sheetScroll=0;a.draw();},{ghost:true});z+=55;}
     const golden=E.familyLiving(s).some(p=>p.realm>=14)&&s.renown>=50;btn('聘请炼丹供奉 · '+(golden?200:80)+'灵石',23,z,344,()=>a.confirm('炼丹供奉需族望20；聘金'+(golden?200:80)+'灵石，日常供养'+(golden?10:4)+'灵石/季，承担相应阶位炼丹，不直接继承族长。',()=>a.act('hire',{specialty:'alchemy'})),{ghost:true});z+=58;
-    z=lines('培养新人：在族人详情打开「百艺档案」。族长会在婚配与口粮有保障、缺少技艺传人且经费充裕时，优先挑普通资质、百艺天分好的族人学习。',23,z,344,12,C.muted,4)+20;
+    z=lines('自动转修：族长在经费、婚配与留守有保障时，挑选长期停滞或多次冲关受挫且百艺天分至少60的族人。高潜力后辈与手动安排保留；百艺档案可查看原因与手动调整。',23,z,344,12,C.muted,4)+20;
    }else if(sh.kind==='artisan'){
     const p=E.person(s,sh.id);if(!p){a.sheet=null;return;}portrait(p,23,z,28);fitText(p.name,95,z+8,260,21,C.ink,true);txt(E.REALMS[p.realm]+' · '+E.JOBS[p.job],95,z+39,12,C.muted);z+=79;
-    for(const [kind,name] of Object.entries(E.ARTS)){const info=E.artInfo(p,kind);txt(name+' · '+info.name,23,z,17,C.ink,true);z+=30;txt('熟练度 '+info.xp+' · 百艺天分 '+info.aptitude+' · 境界可达'+info.limit+'阶',23,z,12,C.gold);z+=28;if(p.alive&&!p.departed&&info.tier<info.limit&&!p.artStudy){btn(kind==='alchemy'?'研习炼丹术':'研习制符术',23,z,344,()=>a.confirm('置办百艺教材需12灵石；每季研习再花2灵石，期间不同时修行或制符，达成下一阶后结业。',()=>a.act('art',{id:p.id,kind})),{ghost:true});z+=56;}}
+    for(const [kind,name] of Object.entries(E.ARTS)){const info=E.artInfo(p,kind);txt(name+' · '+info.name,23,z,17,C.ink,true);z+=30;txt('熟练度 '+info.xp+' · 百艺天分 '+info.aptitude,23,z,12,C.gold);z+=25;txt('修为上限'+info.realmLimit+'阶 · 天分上限'+info.potential+'阶 · 目前可达'+info.limit+'阶',23,z,11,C.muted);z+=27;if(p.alive&&!p.departed&&info.tier<info.limit&&!p.artStudy){btn(kind==='alchemy'?'研习炼丹术':'研习制符术',23,z,344,()=>a.confirm('置办百艺教材需12灵石；每季研习再花2灵石，期间不同时修行或制符，达成下一阶后结业。',()=>a.act('art',{id:p.id,kind})),{ghost:true});z+=56;}}
+    z=lines(p.artCareer?'百艺路线：'+E.ARTS[p.artCareer.kind]+'；'+p.artCareer.reason:'转修判断：'+E.cultivationOutlook(s,p).reason,23,z,344,12,C.green,4)+18;
+    z=lines('入门天分至少50；二/三/四阶分别需要60/75/85，并满足修为与熟练度。旧档已掌握的阶位保留。转修保留日后突破机会，可在族人详情重新列为重点培养。',23,z,344,11,C.muted,4)+16;
     if(p.artStudy){z=lines('正在研习'+E.ARTS[p.artStudy.kind]+'，目标'+p.artStudy.target+'阶；每季增长依百艺天分及在族长辈指导计算。',23,z,344,13,C.green,3)+18;}
     if(p.alive&&!p.departed){if(E.artInfo(p,'alchemy').tier>=1){btn('由此人炼制养元散',23,z,344,()=>a.act('alchemy',{recipe:'tonic',id:p.id}),{ghost:true});z+=56;}btn('使用养元散 · 恢复15健康',23,z,344,()=>a.act('medicine',{id:p.id}),{ghost:true});z+=56;btn('查看族人详情',23,z,344,()=>a.openPerson(p.id),{ghost:true});z+=56;}
    }else if(sh.kind==='service'){

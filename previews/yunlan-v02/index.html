@@ -175,12 +175,12 @@
     if(budget.cap>=30&&s.resources.stones-30>=budget.reserve&&s.resources.food>=living(s).length*6){resolve(s,'accept');log(s,'族长操办婚配',p.name+'的常规外姓婚配已按预算办理，支出30灵石。','event');}
   }
   function continueBranch(s){
-    if(!s.ending)return '只有传承终章才能接续支脉';if(s.people.length>246)return '族谱容量不足，无法接续支脉';
+    if(!s.ending)return '只有传承终章才能接续支脉';if(living(s).length>=32)return '在世人数已满，无法接续支脉';if(s.people.length>246)return '族谱容量不足，无法接续支脉';
     s.chapters=s.chapters||[];s.chapters.push({ending:clone(s.ending),turn:s.turn,leaderId:s.leaderId,logs:clone(s.logs.filter(l=>['major','death'].includes(l.kind))),memberIds:s.people.map(p=>p.id)});
     s.resources.stones=Math.floor(s.resources.stones*.6)+30;s.resources.food=Math.floor(s.resources.food*.6)+60;s.herbs=Math.floor((s.herbs||0)*.6);s.pills=Math.floor(s.pills*.6);
     s.project=null;s.alchemyProject=null;s.missions=[];s.pregnancies=[];s.pending=null;s.ending=null;s.focusId=null;s.heirId=null;s.guidanceRead=[];s.generation=Math.max(...s.people.map(p=>p.generation))+1;
-    const a=addPerson(s,{name:s.surname+'承续',sex:'m',ageMonths:25*12,realm:1,root:55,rootKnown:true,job:'training',generation:s.generation,origin:'远支续族'}),b=addPerson(s,{name:'苏安宁',sex:'f',ageMonths:23*12,realm:1,root:48,rootKnown:true,job:'farm',generation:s.generation,origin:'外姓姻亲'});a.partner=b.id;b.partner=a.id;
-    addPerson(s,{name:s.surname+'新禾',sex:'f',ageMonths:4*12,root:quality(s,20),parents:[a.id,b.id],generation:s.generation+1,origin:'远支后辈'});s.leaderId=a.id;s.lastLineageTurn=s.turn;s.continuityGraceUntil=s.turn+4;
+    const slots=32-living(s).length,a=addPerson(s,{name:s.surname+'承续',sex:'m',ageMonths:25*12,realm:1,root:55,rootKnown:true,job:'training',generation:s.generation,origin:'远支续族'});
+    if(slots>=2){const b=addPerson(s,{name:'苏安宁',sex:'f',ageMonths:23*12,realm:1,root:48,rootKnown:true,job:'farm',generation:s.generation,origin:'外姓姻亲'});a.partner=b.id;b.partner=a.id;if(slots>=3)addPerson(s,{name:s.surname+'新禾',sex:'f',ageMonths:4*12,root:quality(s,20),parents:[a.id,b.id],generation:s.generation+1,origin:'远支后辈'});}s.leaderId=a.id;s.lastLineageTurn=s.turn;s.continuityGraceUntil=s.turn+4;
     milestone(s,'branch'+s.chapters.length,'支脉续族','远支'+a.name+'携家眷归来。旧人仍留族谱，六成灵石、粮食、草药与丹药留存；产业和传承保留，另得30灵石、60粮食开族资助。');updateStage(s);manageJobs(s,true);return null;
   }
   function familySupport(s){const seniors=living(s).filter(p=>p.realm>=10&&p.health>=60&&p.job!=='outing');return {seniors:seniors.length,training:Math.min(2,seniors.length)*2};}
@@ -268,7 +268,7 @@
       score('leave',0,[0,0,0,0],'无合适人手且预算不足，接受本次粮食损失');
     }else if(e.kind==='visitor'){
       const fragile=lineageStatus(s).adults<3;
-      score('welcome',15,fragile?[9,9,10,9]:[2,1,9,7],'接纳来客，壮大家族',living(s).length<32&&s.resources.food>=living(s).length*2);
+      score('welcome',15,fragile?[9,9,10,9]:[2,1,9,7],'接纳来客，壮大家族',living(s).length+s.pregnancies.length<32&&s.resources.food>=living(s).length*2);
       score('decline',0,[7,9,1,2],'谨慎接纳外人，先照顾现有族人');
     }else if(e.kind==='insight'){
       const target=person(s,e.personId);if(!target||!target.alive){s.pending=null;log(s,'族务已终止','悟道当事人已不在世，不再安排指点。');return;}
@@ -295,7 +295,7 @@
     const pool=['harvest','visitor','insight','dispute','gift'];
     const k=pool[Math.floor(rand(s)*pool.length)],ps=living(s);
     if(k==='harvest')event(s,k,'灵田生了虫害','灵谷叶上出现虫斑。若不及时处理，这一季的余粮恐怕保不住。',[{id:'pay',label:'请人治虫',detail:'花10灵石，另保住12粮食'},{id:'work',label:'安排族人清理',detail:'派两位适龄族人清理，仅参与者修为减4'},{id:'leave',label:'承受损失',detail:'损失18粮食'}],'home');
-    if(k==='visitor'&&ps.length<32)event(s,k,'山门外的来客','一位成年散修希望携家眷投靠。他愿以族规自约，和大家一起照料灵田。',[{id:'welcome',label:'接纳入族',detail:'花15灵石安置，增加一位成年族人'},{id:'decline',label:'赠水送别',detail:'保持现状，不扣资源'}],'outing',{sex:rand(s)<.5?'m':'f'});
+    if(k==='visitor'&&ps.length+s.pregnancies.length<32)event(s,k,'山门外的来客','一位成年散修希望携家眷投靠。他愿以族规自约，和大家一起照料灵田。',[{id:'welcome',label:'接纳入族',detail:'花15灵石安置，增加一位成年族人'},{id:'decline',label:'赠水送别',detail:'保持现状，不扣资源'}],'outing',{sex:rand(s)<.5?'m':'f'});
     if(k==='insight'){const p=ps.filter(p=>p.rootKnown&&p.root>0)[Math.floor(rand(s)*ps.filter(p=>p.rootKnown&&p.root>0).length)];if(!p)return;event(s,k,'灯下有所悟',p.name+'研读旧卷，似乎摸到了以往未曾领会的关窍。',[{id:'teach',label:'请长辈指点',detail:'花8灵石，悟性+3、修为+12'},{id:'self',label:'让其自行参悟',detail:'修为+5，不消耗灵石'}],'school',{personId:p.id});}
     if(k==='dispute')event(s,k,'邻族争界','邻近家族对灵田边界提出异议。如何处理，将影响往后的往来。',[{id:'talk',label:'持契协商',detail:'花8灵石，族望+3'},{id:'defend',label:'派人据理守界',detail:'按家族守备与护山阵检定；失败损20粮食'},{id:'yield',label:'暂且退让',detail:'损10粮食，族内和睦-3'}],'battle');
     if(k==='gift')event(s,k,'坊市传来消息','一位熟悉的行商带来一枚破境丹，愿以旧交价转让。',[{id:'buy',label:'购下丹药',detail:'花28灵石，获得破境丹×1'},{id:'pass',label:'留待以后',detail:'保持积蓄'}],'outing');
@@ -349,7 +349,7 @@
       if(id==='work'){const workers=pestWorkers(s);if(!workers.length)return '暂无健康的适龄族人可清理';for(const q of workers)q.progress=Math.max(0,q.progress-4);log(s,'清理虫害',workers.map(q=>q.name).join('、')+'参与清理，仅参与者修为各减4。');}
       if(id==='leave')r.food=Math.max(0,r.food-18);
     }else if(e.kind==='visitor'&&id==='welcome'){
-      if(living(s).length>=32)return '核心族人已达32人';if(!pay(15))return '灵石不足';
+      if(living(s).length+s.pregnancies.length>=32)return '人数与待出生后辈已达32人';if(!pay(15))return '灵石不足';
       const q=addPerson(s,{name:joinName(s,e.sex),sex:e.sex,ageMonths:24*12,realm:1,root:48,rootKnown:true,job:'farm',generation:s.generation+1});log(s,'接纳族人',q.name+'正式入籍。','gain');
     }else if(e.kind==='insight'){
       if(!p||!p.alive)return '当事族人已不在';if(id==='teach'){if(!pay(8))return '灵石不足';p.insight+=3;p.progress=Math.min(need(p),p.progress+12);}else p.progress=Math.min(need(p),p.progress+5);
@@ -360,7 +360,7 @@
     }else if(e.kind==='gift'&&id==='buy'){if(!pay(28))return '灵石不足';s.pills++;}
     else if(e.kind==='succession'){const q=person(s,id);if(!q||!q.alive||age(q)<18)return '继任者不符合条件';appointLeader(s,q,'族中公议');}
     else if(e.kind==='marriage'&&id==='accept'){
-      if(!p||!p.alive||p.partner)return '婚姻条件已变化';if(!e.partner||areRelated(s,p,e.partner))return '近亲或无效候选不能婚配';if(living(s).length>=32)return '族人已达上限';if(!pay(30))return '灵石不足';
+      if(!p||!p.alive||p.partner)return '婚姻条件已变化';if(!e.partner||areRelated(s,p,e.partner))return '近亲或无效候选不能婚配';if(living(s).length+s.pregnancies.length>=32)return '人数与待出生后辈已达上限';if(!pay(30))return '灵石不足';
       const q=addPerson(s,Object.assign({},e.partner,{partner:p.id,generation:p.generation}));q.job=recommendedJob(s,q);p.partner=q.id;s.harmony=Math.min(100,s.harmony+4);log(s,'两姓结好',p.name+'与'+q.name+'结为道侣。','major');
     }
     if(e.kind==='marriage'&&id==='decline'&&p){p.marriageHoldUntil=s.turn+16;s.lastLineageTurn=s.turn;}
@@ -393,7 +393,7 @@
       event(s,'ack',success?'破境有成':'暂缓锋芒',success?p.name+'跨过了关口，寿元与修行上限随之改变。在族地且健康足够时可指导后辈；主持符坊时额外增加3灵石进项。':p.name+'冲关失败，修为折损，须先养好伤势。',[{id:'ok',label:success?'道途更远':'安心调养',detail:'回到家族'}],'breakthrough');updateStage(s);return null;}
     if(type==='mission'){const q=person(s,a.id);if(!q||!q.alive||age(q)<16||q.realm<1||q.job==='outing'||q.health<60)return '需在族地、年满16岁且健康60以上的修士';if(s.resources.food<8)return '需8粮食作行装';
       const danger=a.risk==='ruin';s.resources.food-=8;s.missions.push({personId:q.id,due:s.turn+1,oldJob:q.job,roll:rand(s),risk:danger?.32:.08,reward:danger?26:12});q.job='outing';log(s,'出门历练',q.name+'前往'+(danger?'古迹（较险）':'山间采药（较稳）')+'，一季后回返。');return null;}
-    if(type==='marriage'){if(!p||!p.alive||age(p)<18||age(p)>60||p.partner)return '需18至60岁、尚未婚配的在世族人';if(p.job==='outing')return '请待族人回家';if(living(s).length>=32)return '族人已达上限';
+    if(type==='marriage'){if(!p||!p.alive||age(p)<18||age(p)>60||p.partner)return '需18至60岁、尚未婚配的在世族人';if(p.job==='outing')return '请待族人回家';if(living(s).length+s.pregnancies.length>=32)return '人数与待出生后辈已达上限';
       const offer=marriageOffer(s,p);
       event(s,'marriage','两姓之好','媒人介绍了'+offer.name+'。双方愿意结伴，仍须由族中置办安家用度。',[{id:'accept',label:'结为道侣',detail:'花30灵石，新成员正式入族'},{id:'decline',label:'暂缓此议',detail:'不消耗资源，同一人选保留'}],'wedding',{personId:p.id,partner:offer});return null;}
     if(type==='rename'){const name=String(a||'').replace(/[<>\r\n]/g,'').trim().slice(0,12);if(!name)return '请输入家族名';s.name=name;return null;}

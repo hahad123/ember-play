@@ -109,17 +109,20 @@
     const crafters=s.buildings.workshop?workers.filter(p=>p.job==='craft'&&age(p)>=16&&p.realm>=1):[],craft=crafters.length;
     const focus=person(s,s.focusId),focused=focus&&focus.alive&&focus.health>=60&&['training','study'].includes(focus.job)&&focus.progress+8+focus.root/12+s.buildings.school*2+focus.insight/8+territory(s).practice+(focus.realm<10?familySupport(s).training:0)<need(focus);
     return {income:6+farm*3+s.buildings.garden*10+craft*s.buildings.workshop*7+crafters.filter(p=>p.realm>=10).length*3+crafters.filter(p=>p.office==='guest').length*2+ORIGINS[s.origin].bonus+territory(s).income,
-      upkeep:Math.max(2,ps.length)+s.buildings.garden*2+s.buildings.workshop*2+s.buildings.array*3+territory(s).upkeep+ps.reduce((n,p)=>n+officeUpkeep(p),0),
+      upkeep:Math.max(2,ps.length)+s.buildings.garden*2+s.buildings.workshop*2+s.buildings.array*3+Math.max(0,s.buildings.field-4)*2+Math.max(0,s.buildings.school-3)*2+territory(s).upkeep+ps.reduce((n,p)=>n+officeUpkeep(p),0),
       training:workers.filter(p=>['training','study'].includes(p.job)&&age(p)>=6).length*2+(focused?4:0),
       food:s.buildings.field*18+farm*10,foodCost:ps.length*3};
   }
+  function buildingLimit(s,id){return BUILDINGS[id]?BUILDINGS[id].max+(s.territoryLevel||0)*2:0;}
+  function buildingPlan(s,id){const d=BUILDINGS[id];if(!d)return null;const level=s.buildings[id]+1,extra=Math.max(0,level-d.max);return {level,limit:buildingLimit(s,id),cost:d.base*level*(1+Math.ceil(extra/2)),ore:extra*(id==='array'?4:2),fragments:['school','array'].includes(id)?Math.floor((extra+1)/2):0,turns:extra?2+Math.floor((extra-1)/2):1,realm:extra?extra>4?18:extra>2?14:10:0};}
+  function buildingEffect(s,id,level=s.buildings[id]){const extra=Math.max(0,level-BUILDINGS[id].max);return id==='field'?'每季产粮'+level*18+'，维护'+extra*2+'灵石':id==='garden'?'每季收入'+level*10+'、草药'+level+'，维护'+level*2+'灵石':id==='workshop'?'每位制符修士每季收入'+level*7+'，维护'+level*2+'灵石':id==='school'?'修行基础加成+'+level*2+'，研习悟性+'+(1+level*.3).toFixed(1)+'，维护'+extra*2+'灵石':'阵法守备+'+level*15+'、冲关基础加成+'+(level*2.5).toFixed(1)+'%，维护'+level*3+'灵石（总成功率上限88%）';}
   function buildReason(s,id){
     const d=BUILDINGS[id];if(!d)return '没有这种产业';if(s.project)return '先完成当前营造或传承';
-    if(s.buildings[id]>=d.max)return '已经达到本版最高等级';
+    if(s.buildings[id]>=buildingLimit(s,id))return (s.territoryLevel||0)<3?'已达当前领地上限，迁居后可继续扩建':'已达洞天最高等级';
     if(id==='workshop'&&!living(s).some(p=>p.realm>=1&&age(p)>=16))return '需要成年修士';
     if(id==='workshop'&&s.renown<12)return '族望达到12后可开符坊';
     if(id==='array'&&!living(s).some(p=>p.realm>=10))return '需要筑基修士主持阵法';
-    const cost=d.base*(s.buildings[id]+1);return s.resources.stones<cost?'需要 '+cost+' 灵石':'';
+    const plan=buildingPlan(s,id);if(plan.realm&&!living(s).some(p=>p.realm>=plan.realm&&p.job!=='outing'))return '需'+REALMS[plan.realm]+'修士在族地主持';const missing=[['灵石',plan.cost-s.resources.stones],['灵矿',plan.ore-(s.ore||0)],['残卷',plan.fragments-(s.fragments||0)]].filter(x=>x[1]>0);return missing.length?'尚缺'+missing.map(x=>Math.ceil(x[1])+x[0]).join('、'):'';
   }
   function bookReason(s){
     if(s.project)return '先完成当前营造或传承';if(s.heritage>=4)return '传承已至元婴';
@@ -219,7 +222,7 @@
     if(s.pending||s.ending||policy(s).mode!=='auto')return 0;
     const f=forecast(s);let spent=0;
     if(phase!=='industry'&&s.resources.food<f.foodCost*2&&f.food<f.foodCost&&canFund(s,10,'survival')){const bundles=Math.min(Math.ceil((f.foodCost*2-s.resources.food)/30),Math.floor((s.resources.stones-governance(s).reserve)/10)),cost=bundles*10,food=bundles*30;s.resources.stones-=cost;s.resources.food+=food;spent+=cost;governRecord(s,'物资','存粮不足，购入'+food+'粮食',cost);log(s,'家族采购粮食','按族长政策支出'+cost+'灵石，补入'+food+'粮食。','event');}
-    if(phase!=='food'&&!s.project){const id=f.food<f.foodCost?'field':f.income-f.upkeep-f.training<4?'garden':null;if(id&&!buildReason(s,id)){const cost=BUILDINGS[id].base*(s.buildings[id]+1);if(canFund(s,cost,'investment')){mutate(s,'build',id);spent+=cost;governRecord(s,'产业','为稳定供给安排'+BUILDINGS[id].name,cost);}}}
+    if(phase!=='food'&&!s.project){const id=f.food<f.foodCost?'field':f.income-f.upkeep-f.training<4?'garden':null;if(id&&!buildReason(s,id)){const cost=buildingPlan(s,id).cost;if(canFund(s,cost,'investment')){mutate(s,'build',id);spent+=cost;governRecord(s,'产业','为稳定供给安排'+BUILDINGS[id].name,cost);}}}
     return spent;
   }
   function governDevelopment(s){
@@ -229,7 +232,7 @@
     if(!p){s.developmentWait='族人按分工修行，圆满后自动检查突破';return spent;}
     if(p.cooldown>s.turn||p.health<65){s.developmentWait=p.name+'等待伤势与调养恢复';if(!p.jobLocked){p.job='rest';p.jobReason='族长安排休养，恢复后再筹备突破';}return spent;}
     if(cap(s,p)<=p.realm){const why=bookReason(s),cost=bookCost(s);if(!why&&canFund(s,cost,'investment')){mutate(s,'book');spent+=cost;governRecord(s,'传承','为'+p.name+'整理下一卷家传',cost);}s.developmentWait=p.name+'等待下一境界传承'+(s.project?.kind==='book'?'续成':'，需按政策积蓄至'+Math.ceil(cost/g.rate+g.reserve+g.buffer)+'灵石');return spent;}
-    if(breakChance(s,p)<g.chance){s.developmentWait=p.name+'突破把握'+Math.round(breakChance(s,p)*100)+'%，未达'+g.name+'要求的'+Math.round(g.chance*100)+'%';if(!s.project){const id=!buildReason(s,'array')?'array':s.buildings.school===0&&!buildReason(s,'school')?'school':null;if(id){const cost=BUILDINGS[id].base*(s.buildings[id]+1);if(canFund(s,cost,'investment')){mutate(s,'build',id);spent+=cost;governRecord(s,'守护',id==='array'?'营造护山阵，提高冲关把握':'兴办族学，研习悟性后再稳妥冲关',cost);}}}return spent;}
+    if(breakChance(s,p)<g.chance){s.developmentWait=p.name+'突破把握'+Math.round(breakChance(s,p)*100)+'%，未达'+g.name+'要求的'+Math.round(g.chance*100)+'%';if(!s.project){const id=!buildReason(s,'array')?'array':s.buildings.school===0&&!buildReason(s,'school')?'school':null;if(id){const cost=buildingPlan(s,id).cost;if(canFund(s,cost,'investment')){mutate(s,'build',id);spent+=cost;governRecord(s,'守护',id==='array'?'营造护山阵，提高冲关把握':'兴办族学，研习悟性后再稳妥冲关',cost);}}}return spent;}
     if(!s.pills){if(s.alchemyProject){s.developmentWait=p.name+'等待丹房出丹';return spent;}if((s.herbs||0)>=6&&familySupport(s).seniors&&canFund(s,18,'investment')){mutate(s,'alchemy');spent+=18;governRecord(s,'炼丹','为'+p.name+'用草药炼制破境丹',18);s.developmentWait='丹房下一季出丹';return spent;}if(canFund(s,35,'investment')){mutate(s,'pill');spent+=35;governRecord(s,'采购','为'+p.name+'购入破境丹',35);}else{const cost=(s.herbs||0)>=6&&familySupport(s).seniors?18:35;s.developmentWait=p.name+'等待丹药，当前政策需积蓄至'+Math.ceil(cost/g.rate+g.reserve+g.buffer)+'灵石';return spent;}}
     const why=breakReason(s,p);if(why){s.developmentWait=why;return spent;}mutate(s,'break',p.id);const result=s.pending?.title||'冲关已办理';if(s.pending?.kind==='ack')s.pending=null;governRecord(s,'突破',p.name+'：'+result+'，按'+g.name+'的风险标准办理');s.developmentWait=result;return spent;
   }
@@ -537,7 +540,7 @@
     if(type==='development'){if(!p||!p.alive||p.departed)return '族人已不在';p.breakthroughManual=!p.breakthroughManual;return null;}
     if(type==='lineage'){if(a==='recruit'||a==='adopt')return addLineageMember(s,a);if(a&&a.id){const q=person(s,a.id);if(!q||!q.alive)return '族人已不在';if(q.marriageManual||(q.marriageHoldUntil||0)>s.turn){q.marriageManual=false;q.marriageHoldUntil=0;}else q.marriageManual=true;return null;}return '无效的家族延续安排';}
     if(type==='next'){advance(s);return null;}
-    if(type==='build'){const why=buildReason(s,a);if(why)return why;const cost=BUILDINGS[a].base*(s.buildings[a]+1);s.resources.stones-=cost;s.project={kind:'building',id:a,remaining:1,cost};log(s,'动工营造',BUILDINGS[a].name+'开始营造，下一季落成。');return null;}
+    if(type==='build'){const why=buildReason(s,a);if(why)return why;const plan=buildingPlan(s,a);s.resources.stones-=plan.cost;s.ore=(s.ore||0)-plan.ore;s.fragments=(s.fragments||0)-plan.fragments;s.project={kind:'building',id:a,remaining:plan.turns,cost:plan.cost,ore:plan.ore,fragments:plan.fragments};log(s,'动工营造',BUILDINGS[a].name+'扩建至'+plan.level+'级，需'+plan.turns+'季。');return null;}
     if(type==='book'){const why=bookReason(s);if(why)return why;const cost=bookCost(s);s.resources.stones-=cost;if((s.fragments||0)>=2)s.fragments-=2;s.project={kind:'book',remaining:2,cost};log(s,'续写传承','族中长辈搜集并研习整理'+BOOKS[s.heritage+1]+'，两季后完成。');return null;}
     if(type==='job'){const q=person(s,a.id),why=trainingReason(s,q,a.job);if(why)return why;q.job=a.job;q.jobLocked=true;q.jobReason='玩家手动指定，族长保留此安排';return null;}
     if(type==='root'){if(!p||!p.alive||age(p)<6)return '满6岁后可以测灵';if(p.rootKnown)return '已经测过灵根';if(s.resources.stones<5)return '需5灵石';s.resources.stones-=5;p.rootKnown=true;if(p.root>0&&hasMortalParent(s,p))p.branchOriginId=branchKey(s,p);if(p.root>0&&hasMortalParent(s,p))log(s,'支脉仙苗',p.name+'出自凡俗房支，测出灵根，进入后辈培养名册。','major');if(p.job==='rest')p.job=recommendedJob(s,p);log(s,p.root>=70?'发现修仙良才':'测灵之日',p.name+'：'+rootName(p)+(p.root>=70?'，可列为重点培养对象。':'。'),'major');return null;}
@@ -566,7 +569,7 @@
     if(!Number.isFinite(s.resources.stones)||s.resources.stones<0||!Number.isFinite(s.resources.food)||s.resources.food<0)throw Error('存档资源异常');
     const ids=new Set();for(const p of allPeople(s)){if(ids.has(p.id)||!p.id||!Number.isFinite(p.ageMonths)||p.ageMonths<0||!Number.isInteger(p.realm)||p.realm<0||p.realm>=REALMS.length||!Number.isFinite(p.health)||!Number.isFinite(p.root))throw Error('族人记录异常');ids.add(p.id);}
     if(!ids.has(s.leaderId)||!s.buildings||!s.achievements||!Array.isArray(s.logs)||!Array.isArray(s.missions)||!Array.isArray(s.pregnancies)||!Number.isInteger(s.heritage)||s.heritage<1||s.heritage>4)throw Error('家族记录缺失');
-    for(const id of Object.keys(BUILDINGS))if(!Number.isInteger(s.buildings[id])||s.buildings[id]<0||s.buildings[id]>BUILDINGS[id].max)throw Error('产业记录异常');
+    for(const id of Object.keys(BUILDINGS))if(!Number.isInteger(s.buildings[id])||s.buildings[id]<0||s.buildings[id]>buildingLimit(s,id))throw Error('产业记录异常');
     if(s.ancestors&&(!Array.isArray(s.ancestors)||s.ancestors.some(p=>p.alive&&!p.departed)))throw Error('祖祠记录异常');
     if(s.territoryProject&&(!Number.isInteger(s.territoryProject.level)||s.territoryProject.level<1||s.territoryProject.level>=TERRITORIES.length||!Number.isInteger(s.territoryProject.remaining)||s.territoryProject.remaining<1||s.territoryProject.remaining>4))throw Error('迁居记录异常');
     if(s.territoryLevel!=null&&(!Number.isInteger(s.territoryLevel)||s.territoryLevel<0||s.territoryLevel>=TERRITORIES.length))throw Error('领地记录异常');for(const id of ['ore','fragments'])if(s[id]!=null&&(!Number.isFinite(s[id])||s[id]<0))throw Error('历练材料记录异常');
@@ -581,7 +584,7 @@
   function save(s){validate(s);const body=JSON.stringify(s);return JSON.stringify({version:VERSION,hash:hash(body),body});}
   function hash(str){let v=2166136261;for(let i=0;i<str.length;i++)v=Math.imul(v^str.charCodeAt(i),16777619);return (v>>>0).toString(16);}
   function load(text){const d=JSON.parse(text);if(!d||typeof d.body!=='string'||d.hash!==hash(d.body))throw Error('存档校验未通过');const s=validate(JSON.parse(d.body));repairNames(s);if(s.officeVersion!==1){if(s.leaderId!=='p1'){const founder=person(s,'p1');if(founder)founder.formerLeader=true;}s.officeVersion=1;}if(s.governanceVersion!==1){s.managementEnabled=true;s.governanceVersion=1;s.focusManual=!!s.focusId;}if(!s.managementReview&&!s.ending)snapshotDuties(s);compactArchives(s);for(const p of allPeople(s)){assignAppearance(s,p);const spouse=person(s,p.partner);if(p.alive&&spouse&&!spouse.alive){p.pastPartners=p.pastPartners||[];if(!p.pastPartners.some(q=>q.id===spouse.id))p.pastPartners.push({id:spouse.id,turn:spouse.diedTurn??s.turn});p.partner=null;}}return s;}
-  return {VERSION,REALMS,OFFICES,officeReason,officeUpkeep,MAPS,TERRITORIES,territory,bookCost,autoExpeditionPlan,expeditionPolicy,expeditionPlan,migrationReason,ORIGINS,BUILDINGS,JOBS,BOOKS,SEASONS,create,dispatch,save,load,validate,living,familyLiving,allPeople,genealogy,branchKey,person,age,lifespan,need,cap,rootName,forecast,stageName,governance,lineageTasks,lineageStatus,areRelated,familySupport,talentCandidates,breakthroughPlan,portraitSpec,manageJobs,policy,PERSONALITIES,temperament,ROUTINE_KINDS,recommendedJob,sortedPeople,buildReason,bookReason,trainingReason,breakReason,breakChance};
+  return {VERSION,REALMS,OFFICES,officeReason,officeUpkeep,MAPS,TERRITORIES,territory,bookCost,autoExpeditionPlan,expeditionPolicy,expeditionPlan,migrationReason,ORIGINS,BUILDINGS,buildingLimit,buildingPlan,buildingEffect,JOBS,BOOKS,SEASONS,create,dispatch,save,load,validate,living,familyLiving,allPeople,genealogy,branchKey,person,age,lifespan,need,cap,rootName,forecast,stageName,governance,lineageTasks,lineageStatus,areRelated,familySupport,talentCandidates,breakthroughPlan,portraitSpec,manageJobs,policy,PERSONALITIES,temperament,ROUTINE_KINDS,recommendedJob,sortedPeople,buildReason,bookReason,trainingReason,breakReason,breakChance};
 });
 
 </script><script>
@@ -691,9 +694,12 @@
    btn('领地、迁居与历练',18,y,354,()=>{a.sheet={kind:'world'};a.sheetScroll=0;a.draw();},{ghost:true});y+=57;
    headline('族地营造',y,'一砖一瓦，皆是家业');y+=34;
    if(s.project){card(y,78);txt('正在'+(s.project.kind==='book'?'整理传承':'营造'+E.BUILDINGS[s.project.id].name),30,y+15,16,C.green,true);txt('还需 '+s.project.remaining+' 季，推进时光后落成',30,y+47,12,C.muted);y+=92;}
+   txt(E.territory(s).name+' · 迁居后各建筑上限提高2级',23,y,12,C.gold);y+=30;
    for(const [id,d] of Object.entries(E.BUILDINGS)){
-    card(y,125);box(29,y+18,46,46,C.pale,10);txt(d.name[0],52,y+27,25,C.green,true,'center');txt(d.name,90,y+17,18,C.ink,true);txt('Lv.'+s.buildings[id]+' / '+d.max,90,y+45,11,C.muted);lines(d.desc,30,y+79,220,12,C.muted,2);
-    const reason=E.buildReason(s,id),cost=d.base*(s.buildings[id]+1);btn(s.buildings[id]>=d.max?'已圆满':(s.buildings[id]?'扩建 ':'营造 ')+cost,249,y+24,109,()=>{if(reason)a.toast(reason);else a.act('build',id);},{ghost:!!reason});if(reason)lines(reason,245,y+78,115,10,C.muted,2);y+=137;
+    const plan=E.buildingPlan(s,id),reason=E.buildReason(s,id),capped=s.buildings[id]>=plan.limit;card(y,223);box(29,y+18,46,46,C.pale,10);txt(d.name[0],52,y+27,25,C.green,true,'center');txt(d.name,90,y+17,18,C.ink,true);txt('Lv.'+s.buildings[id]+' / '+plan.limit,90,y+45,12,C.gold);
+    lines('当前：'+E.buildingEffect(s,id),30,y+78,325,12,C.muted,3);
+    if(!capped){txt('下级：'+plan.cost+'灵石 · '+plan.ore+'灵矿 · '+plan.fragments+'残卷 · '+plan.turns+'季',30,y+139,11,C.gold);btn((s.buildings[id]?'扩建 ':'营造 ')+plan.cost,30,y+165,326,()=>{if(reason)a.toast(reason);else if(plan.ore||plan.fragments)a.confirm(d.name+'扩建至'+plan.level+'级，消耗'+plan.cost+'灵石、'+plan.ore+'灵矿、'+plan.fragments+'残卷，需'+plan.turns+'季。',()=>a.act('build',id));else a.act('build',id);},{ghost:!!reason});}
+    else{lines(reason,30,y+143,325,12,C.gold,2);btn('查看迁居条件',30,y+165,326,()=>{a.sheet={kind:'world'};a.sheetScroll=0;a.draw();},{ghost:true});}y+=237;
    }
    headline('丹房与草药',y);y+=32;card(y,146);txt('草药 '+(s.herbs||0)+' 份',30,y+15,17,C.ink,true);txt('药园每级每季产1份，采药成功带回4份',30,y+45,11,C.muted);txt(s.alchemyProject?'本炉下一季出丹':'6草药 + 18灵石 · 筑基长辈主持',30,y+69,11,C.muted);btn(s.alchemyProject?'正在炼制':'开炉炼丹',30,y+88,326,action('alchemy'),{ghost:true,h:44});y+=163;
    headline('族库用度',y);y+=32;card(y,91);txt('破境丹 × '+s.pills,30,y+17,17,C.ink,true);txt('冲击筑基、金丹等大境界时消耗',30,y+51,11,C.muted);btn('购丹 35',262,y+19,94,action('pill'),{ghost:true});y+=108;

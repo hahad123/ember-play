@@ -348,7 +348,11 @@
     if(measured)governRecord(s,'测灵','为'+measured+'位后辈测灵',measured*5);
     if(measured)log(s,'家族自动测灵','本季为'+measured+'位满六岁后辈测灵，支出'+measured*5+'灵石；保留额不动用。','event');
     const info=lineageStatus(s),queue=lineageTasks(s),candidates=queue.matches;
-    if(!candidates.length&&!info.children&&!info.pregnancies&&s.turn-(s.lastLineageSupportTurn??-4)>=4){const kind=info.adults<=2&&budget.cap>=15?'recruit':budget.cap>=8?'adopt':null,cost=kind==='recruit'?15:8;if(kind&&s.resources.stones-cost>=budget.reserve){const why=addLineageMember(s,kind);if(!why){s.lastLineageSupportTurn=s.turn;log(s,'族长保全家脉','缺少可婚配族人，按预算'+(kind==='recruit'?'接纳成年支脉':'收养后辈')+'，支出'+cost+'灵石。','event');}}return;}
+    if(!candidates.length&&!info.children&&!info.pregnancies&&s.turn-(s.lastLineageSupportTurn??-4)>=4){
+      if(info.fertile)return;
+      if(canFund(s,15,'lineage')&&s.resources.food>=(living(s).length+1)*3){const why=addLineageMember(s,'recruit');if(!why){s.lastLineageSupportTurn=s.turn;s.lineageIssue=null;governRecord(s,'家脉','已无适龄家庭，接纳24岁成年远支，后续按正常婚配发展',15);log(s,'族长保全家脉','接纳成年远支，支出15灵石；不受零星小事额度限制，保留族库与口粮。','major');}}else s.lineageIssue='缺少适龄家庭，接纳成年远支需15灵石并保留族库及口粮';return;
+    }
+
     if(!candidates.length||queue.reason||s.lastAutoMarriageTurn===s.turn)return;
     const trait=temperament(person(s,s.leaderId));candidates.sort((a,b)=>Number(age(a)>40)-Number(age(b)>40)||(trait==='benevolent'?age(b)-age(a):trait==='prudent'?b.health-a.health||age(a)-age(b):trait==='frugal'?Number(a.job==='training')-Number(b.job==='training')||b.root-a.root:b.root-a.root||age(a)-age(b)));
     const p=candidates.find(p=>s.resources.stones-marriageCost(p)>=budget.reserve&&(marriageCost(p)!==8||s.resources.food>=12+(familyLiving(s).length+1)*3));if(!p)return;const offer=marriageOffer(s,p),cost=marriageCost(p);event(s,'marriage','家族常规婚配',PERSONALITIES[trait].name+'的族长为'+p.name+'安排外姓姻亲'+offer.name+'，双方有结伴意愿。',[
@@ -999,7 +1003,7 @@
     z=lines('族长剩余寿元约'+info.remaining+'年 · '+(info.validHeir?'已有成年继承人':'尚无指定成年继承人'),23,z,344,13,C.muted,2)+20;
     for(const warning of info.warnings)z=lines('◇ '+warning,23,z,344,12,C.gold,3)+12;
     z=lines('委托族长时，满6岁每季自动测灵（5灵石），成年排队婚配（修士30灵石；凡俗8灵石及12粮食，每季至多一对）；基础家务不受零星开支上限阻挡，仍守住族库保留额。亲自接管时由你安排。',23,z,344,12,C.muted,4)+20;
-    const tasks=E.lineageTasks(s);z=lines('待自动测灵 '+tasks.roots.length+' 人 · 待婚配 '+tasks.matches.length+' 人',23,z,344,13,C.green,2)+16;if(tasks.reason)z=lines(tasks.reason,23,z,344,12,C.gold,3)+18;
+    const tasks=E.lineageTasks(s);z=lines('待自动测灵 '+tasks.roots.length+' 人 · 待婚配 '+tasks.matches.length+' 人',23,z,344,13,C.green,2)+16;if(tasks.reason||s.lineageIssue)z=lines(tasks.reason||s.lineageIssue,23,z,344,12,C.gold,3)+18;
     const report=E.populationReport(s);txt('婚育诊断 · '+report.eligible.length+'户可安排后代',23,z,17,C.ink,true);z+=32;
     z=lines('修士适婚适育年龄随境界延长；夫妻需在家且健康、口粮足够。正常条件下首个后代连续等待满12个适育季会优先安排；不会凭空补生孩子。',23,z,344,12,C.muted,4)+18;
     const pages=Math.max(1,Math.ceil(report.plans.length/6)),page=Math.min(a.familyPage||0,pages-1);a.familyPage=page;if(pages>1){btn('家庭上页',23,z,110,()=>{a.familyPage=page-1;a.draw();},{ghost:true,disabled:page===0});txt((page+1)+'/'+pages,195,z+15,12,C.gold,true,'center');btn('家庭下页',257,z,110,()=>{a.familyPage=page+1;a.draw();},{ghost:true,disabled:page===pages-1});z+=58;}

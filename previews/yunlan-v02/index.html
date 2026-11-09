@@ -277,7 +277,7 @@
     for(const p of team)p.insight=Math.min(100,p.insight+2);s.mapDiscoveries=s.mapDiscoveries||{};s.mapDiscoveries[m.mapId]=(s.mapDiscoveries[m.mapId]||0)+1;
     log(s,'历练有获',map.name+'归来：灵石'+map.stones+'、草药'+map.herbs+'、灵矿'+map.ore+'、功法残卷'+map.fragments+'。','major');governRecord(s,'历练',map.name+'探索成功，材料已收入族库');
   }
-  function migrationReason(s){const next=TERRITORIES[(s.territoryLevel||0)+1];if(!next)return '本版已达最高领地';if(s.territoryProject)return '迁居尚未完成';if(!living(s).some(p=>p.realm>=next.realm))return '需要'+REALMS[next.realm]+'修士护持';if(s.resources.stones<next.stones||(s.ore||0)<next.ore||(s.fragments||0)<next.fragments)return '需'+next.stones+'灵石、'+next.ore+'灵矿、'+next.fragments+'残卷';return '';}
+  function migrationReason(s){const next=TERRITORIES[(s.territoryLevel||0)+1];if(!next)return '本版已达最高领地';if(s.territoryProject)return '迁居尚未完成';if(!living(s).some(p=>p.realm>=next.realm))return '需要'+REALMS[next.realm]+'修士护持';if(s.resources.stones<next.stones||(s.ore||0)<next.ore||(s.fragments||0)<next.fragments)return '尚缺'+[['灵石',next.stones-s.resources.stones],['灵矿',next.ore-(s.ore||0)],['残卷',next.fragments-(s.fragments||0)]].filter(x=>x[1]>0).map(x=>Math.ceil(x[1])+x[0]).join('、');return '';}
   function migrate(s){const why=migrationReason(s);if(why)return why;const level=(s.territoryLevel||0)+1,next=TERRITORIES[level];s.resources.stones-=next.stones;s.ore-=next.ore;s.fragments=(s.fragments||0)-next.fragments;s.territoryProject={level,remaining:4};log(s,'筹备迁居','举族准备迁往'+next.name+'，需四季整备，现有产业与族人保留。','major');return null;}
   function expeditionPolicy(s){const trait=governance(s).trait;return {cadence:{prudent:8,frugal:8,benevolent:12,ambitious:4}[trait],risk:{prudent:.10,frugal:.12,benevolent:.08,ambitious:.25}[trait]};}
   function governWorld(s){
@@ -759,7 +759,11 @@
     z=lines('自动模式离开页面后按时长补算，最多8小时，年龄与寿元同步推进；遇重大族事暂停。族长选择记在族中近况。',23,z,344,12,C.muted,4)+20;
    }else if(sh.kind==='world'){
     const land=E.territory(s),next=E.TERRITORIES[(s.territoryLevel||0)+1];txt(land.name+' · 灵脉修行 +'+land.practice,23,z,18,C.ink,true);z+=31;txt('灵矿 '+(s.ore||0)+' · 功法残卷 '+(s.fragments||0),23,z,13,C.gold);z+=28;z=lines(E.governance(s).name+'：每'+E.expeditionPolicy(s).cadence+'季评估派队，自动遇险上限'+Math.round(E.expeditionPolicy(s).risk*100)+'%；保护族长、继承人、重点后辈与太上长老。',23,z,344,11,C.muted,3)+16;
-    if(next){z=lines('下一领地：'+next.name+'；需'+E.REALMS[next.realm]+'护持，'+next.stones+'灵石 / '+next.ore+'灵矿 / '+next.fragments+'残卷。迁居后修行+'+next.practice+'，领地进项+'+next.income+'、维护'+next.upkeep+'/季。四季完成，家业保留。',23,z,344,12,C.muted,6)+15;btn(s.territoryProject?'迁居整备还需'+s.territoryProject.remaining+'季':'筹备迁居',23,z,344,()=>a.confirm('迁居会消耗所列资源，四季完成，产业与族人保留。',()=>a.act('migrate')),{ghost:true});z+=58;}
+    if(next){z=lines('下一领地：'+next.name+'；需'+E.REALMS[next.realm]+'护持，'+next.stones+'灵石 / '+next.ore+'灵矿 / '+next.fragments+'残卷。迁居后修行+'+next.practice+'，领地进项+'+next.income+'、维护'+next.upkeep+'/季。四季完成，家业保留。',23,z,344,12,C.muted,6)+15;for(const [label,have,need] of [['灵石',Math.floor(s.resources.stones),next.stones],['灵矿',s.ore||0,next.ore],['功法残卷',s.fragments||0,next.fragments]]){txt(label+'：'+have+' / '+need+(have<need?'（缺'+(need-have)+'）':'（已齐）'),23,z,13,have<need?C.red:C.green,true);z+=27;}
+    const missing=E.migrationReason(s);btn(s.territoryProject?'迁居整备还需'+s.territoryProject.remaining+'季':missing?'条件未齐，暂不能迁居':'筹备迁居',23,z,344,()=>a.confirm('迁往'+next.name+'，消耗'+next.stones+'灵石、'+next.ore+'灵矿、'+next.fragments+'残卷；四季完成，产业与族人保留。',()=>a.act('migrate')),{ghost:true,disabled:!!missing});z+=58;
+    if(missing&&!s.territoryProject){z=lines(missing,23,z,344,12,C.red,2)+12;}
+    z=lines('资源来源：灵石来自产业与历练；灵矿可探索旧灵矿道获得（成功带回3份）；功法残卷从古修洞府及更高秘境获得。',23,z,344,12,C.muted,4)+16;
+    btn('去旧灵矿道收集灵矿',23,z,344,()=>{if(!E.living(s).some(p=>p.realm>=E.MAPS.mine.min)){a.toast('需炼气四层及以上修士带队');return;}a.expeditionTeam=[];a.sheet={kind:'expedition',map:'mine'};a.sheetScroll=0;a.draw();},{ghost:true});z+=58;}
     for(const mission of s.missions.filter(m=>m.teamIds)){z=lines(E.MAPS[mission.mapId].name+' · '+mission.teamIds.map(id=>E.person(s,id)?.name||'族人').join('、')+' · 还需'+Math.max(0,mission.due-s.turn)+'季',23,z,344,12,C.green,3)+14;}
     const max=Math.max(0,...E.living(s).map(p=>p.realm)),band=max>=18?18:max>=14?14:max>=10?10:1,ordered=Object.entries(E.MAPS).sort((a,b)=>Number(max<a[1].min)-Number(max<b[1].min)||Number(a[1].min<band)-Number(b[1].min<band)||Math.abs(a[1].recommend-max)-Math.abs(b[1].recommend-max));for(const [id,map] of ordered){mapImage(map.tile,23,z,344,148);z+=159;txt(map.name+(max<map.min?' · 未开放':''),23,z,19,C.ink,true);z+=31;z=lines(map.desc,23,z,344,12,C.muted,3)+12;txt('需'+E.REALMS[map.min]+'带队 · 建议'+E.REALMS[map.recommend]+' · '+map.turns+'季',23,z,11,C.gold);z+=27;txt('灵石'+map.stones+' 草药'+map.herbs+' 灵矿'+map.ore+' 残卷'+map.fragments,23,z,11,C.muted);z+=25;btn('探索：'+map.name,23,z,344,()=>{if(max<map.min){a.toast('家族尚未达到开放境界');return;}a.expeditionTeam=[];a.sheet={kind:'expedition',map:id};a.sheetScroll=0;a.draw();},{ghost:true});z+=66;}
    }else if(sh.kind==='expedition'){
@@ -805,7 +809,7 @@
     for(const item of E.breakthroughPlan(s,p)){txt((item.ok?'✓ ':'○ ')+item.label,23,z,15,item.ok?C.green:C.gold,true);z+=26;z=lines(item.detail,23,z,344,12,C.muted,2)+18;}
     if(p.realm>=E.cap(s,p)){btn('去整理传承',23,z,344,()=>{a.sheet=null;a.setTab('heritage');},{ghost:true});z+=58;}
     if(!s.pills){btn('去丹房炼制',23,z,344,()=>{a.sheet=null;a.setTab('industry');},{ghost:true});z+=58;btn('购入破境丹 · 35灵石',23,z,344,action('pill'),{ghost:true});z+=58;}
-    const why=E.breakReason(s,p);btn('冲关 · '+Math.round(E.breakChance(s,p)*100)+'%把握',23,z,344,()=>why?a.toast(why):a.confirm('消耗破境丹一枚。失败会受伤、折损修为，并需调养四季。',()=>a.act('break',p.id)),{ghost:!!why});z+=61;z=lines(why||'准备已齐，可由你决定是否冲关。',23,z,344,12,C.muted,3)+20;
+    const why=E.breakReason(s,p);btn('冲关 · '+Math.round(E.breakChance(s,p)*100)+'%把握',23,z,344,()=>why?a.toast(why):a.confirm('消耗破境丹一枚。失败会受伤、折损修为，并需调养四季。',()=>a.act('break',p.id)),{ghost:!!why});z+=61;const manual=p.breakthroughManual||E.policy(s).mode!=='auto',g=E.governance(s),chance=E.breakChance(s,p);const status=manual?'当前为手动管理，需你决定是否冲关。':why?'族长自动管理：'+why:chance<g.chance?'族长自动管理：当前把握'+Math.round(chance*100)+'%，未达到'+g.name+'要求的'+Math.round(g.chance*100)+'%，暂缓冲关。':'族长自动管理：基础条件已齐，关闭面板并过季后参与自动安排，每季优先处理一人；也可提前手动冲关。';z=lines(status,23,z,344,12,C.muted,5)+20;
    }else if(sh.kind==='management'){
     const review=s.managementReview,chief=E.person(s,s.leaderId);txt(chief.name+' · '+E.PERSONALITIES[E.temperament(chief)].name+'主持',23,z,16,C.ink,true);z+=31;
     z=lines(E.policy(s).mode==='manual'?'当前为亲自处理，族长不会自动调整职责。':'每季结束后复核分工；新分工从下一季开始产生收益。手动指定者保留，历练中不调动。',23,z,344,12,C.muted,3)+18;
@@ -839,7 +843,7 @@
     if(p.id!==s.leaderId&&p.affiliation!=='retainer'){btn(p.id===s.heirId?'当前继承人':'指定为继承人',23,z,344,action('heir',p.id),{ghost:true,h:44});z+=49;}
     else if(p.id===s.leaderId&&s.heirId){btn('传位给 '+E.person(s,s.heirId)?.name,23,z,344,()=>a.confirm('传位后，家业继续保留，原族长退居长辈。',()=>a.act('retire')),{ghost:true,h:44});z+=49;}
     if(p.rootKnown&&p.root>0&&p.realm<10&&E.age(p)>=6){btn(s.focusId===p.id?'已列为重点培养':'设为重点培养',23,z,344,()=>a.confirm('列为家族重点培养对象，安排修行；每季最多追加4灵石、增加6修为，不触及族库保留额。',()=>a.act('focus',p.id)),{ghost:true,h:44});z+=52;}
-    if([9,13,17].includes(p.realm)){btn(p.breakthroughManual?'破境：手动保留（点此交回）':'破境：族长自动安排',23,z,344,action('development',p.id),{ghost:true,h:44});z+=52;btn('查看突破筹备',23,z,344,()=>{a.sheet={kind:'preparation',id:p.id};a.sheetScroll=0;a.draw();},{ghost:true,h:44});z+=52;}
+    if([9,13,17].includes(p.realm)){btn(p.breakthroughManual?'破境：手动保留（点此交回）':'破境：自动管理中（点此切换）',23,z,344,action('development',p.id),{ghost:true,h:44});z+=52;btn('查看突破筹备',23,z,344,()=>{a.sheet={kind:'preparation',id:p.id};a.sheetScroll=0;a.draw();},{ghost:true,h:44});z+=52;}
     if([9,13,17].includes(p.realm)){const reason=E.breakReason(s,p);btn('冲关 · '+Math.round(E.breakChance(s,p)*100)+'%把握',23,z,344,()=>reason?a.toast(reason):a.confirm('消耗破境丹1枚；失败会受伤、折损修为并调养四季。',()=>a.act('break',p.id)),{h:44});z+=49;}
     if(E.age(p)>=16&&p.realm>=1){btn('采药历练',23,z,167,()=>a.confirm('携8粮食出行一季，成功带回12灵石；有8%负伤风险与约1%陨落风险。',()=>a.act('mission',{id:p.id,risk:'herb'})),{ghost:true,h:44});btn('探访古迹',200,z,167,()=>a.confirm('携8粮食出行一季，成功带回26灵石；有32%遇险风险与约4%陨落风险。',()=>a.act('mission',{id:p.id,risk:'ruin'})),{ghost:true,h:44});z+=49;}
     if(p.affiliation!=='retainer'&&!p.partner&&E.age(p)>=18&&E.age(p)<=60){btn(p.marriageManual||(p.marriageHoldUntil||0)>s.turn?'婚配：手动或暂缓（点此交回）':'婚配：家族自动安排',23,z,344,action('lineage',{id:p.id}),{ghost:true,h:44});z+=51;btn('议一门亲事',23,z,344,action('marriage',p.id),{ghost:true,h:44});}
@@ -855,6 +859,14 @@
    }finally{a.sheetMaxScroll=Math.max(0,z+74-(H-bottom));ctx.restore();a.dy=0;a.hits=a.hits.filter(h=>sheetHeader.includes(h)||h.y>=sy+66&&h.y+h.h<=H-bottom+1);}
   }
   function finish(){
+   if(a.confirmation){
+    a.hits=[];ctx.fillStyle='rgba(18,38,29,.64)';ctx.fillRect(0,0,W,H);
+    const message=a.confirmation.text;ctx.font='14px sans-serif';let row='',count=1;for(const ch of message){if(ctx.measureText(row+ch).width>294){count++;row='';}row+=ch;}
+    const h=145+count*21,cy=Math.max(top+12,(H-h)/2);
+    box(23,cy,344,h,C.card,8,C.gold);frame(28,cy+5,334,h-10);txt('族中议事',195,cy+24,21,C.green,true,'center');rule(cy+59,43,304);
+    lines(message,48,cy+79,294,14,C.ink,count+1);
+    btn('暂不执行',44,cy+h-61,140,()=>a.resolveConfirm(false),{ghost:true});btn('确认执行',202,cy+h-61,140,()=>a.resolveConfirm(true));return;
+   }
    if(a.toastText&&Date.now()<a.toastUntil){ctx.font='13px sans-serif';const w=Math.min(354,ctx.measureText(a.toastText).width+30);box((W-w)/2,H-151-bottom,w,46,'rgba(35,60,46,.95)',11);txt(a.toastText,195,H-136-bottom,12,'#fff9ed',false,'center');}
   }
  }
@@ -929,7 +941,8 @@
    else if(type==='heir')this.toast('继承安排已记录');
    return true;
   }
-  confirm(text,fn){this.modalDepth++;this.host.confirm(text,()=>{this.resumeModal();fn();},()=>this.resumeModal());}
+  confirm(text,fn){if(this.confirmation)return;this.gesture=null;this.confirmation={text:String(text),fn};this.modalDepth++;this.draw();}
+  resolveConfirm(accepted){const dialog=this.confirmation;if(!dialog)return;this.confirmation=null;this.resumeModal();this.draw();if(accepted)dialog.fn();}
   editSurname(){this.input('家族姓氏',this.surname,text=>{const v=String(text||'').replace(/[<>\r\n]/g,'').trim().slice(0,4);if(v){this.surname=v;this.draw();}});}
   restart(){try{if(this.state)this.host.set(KEY+'_archive',E.save(this.state));this.host.remove(KEY);}catch(_){}this.state=null;this.sheet=null;this.scroll=0;this.loadError=false;this.backgroundClock=null;this.awayReport=null;this.autoEnabled=false;this.elapsed=0;this.draw();}
   settings(){
@@ -944,7 +957,7 @@
    },()=>this.resumeModal());
   }
   touchStart(x,y){this.gesture={x:x/this.scale,y:y/this.scale,last:y/this.scale,moved:false};}
-  touchMove(x,y){const g=this.gesture;if(!g)return;const logical=y/this.scale,d=logical-g.last;g.last=logical;if(Math.abs(logical-g.y)>7)g.moved=true;
+  touchMove(x,y){if(this.confirmation)return;const g=this.gesture;if(!g)return;const logical=y/this.scale,d=logical-g.last;g.last=logical;if(Math.abs(logical-g.y)>7)g.moved=true;
    if(g.moved){if(this.sheet)this.sheetScroll=Math.max(0,Math.min(this.sheetMaxScroll,this.sheetScroll-d));else this.scroll=Math.max(0,Math.min(this.maxScroll,this.scroll-d));this.draw();}}
   touchEnd(x,y){const g=this.gesture;this.gesture=null;if(g&&g.moved)return;const lx=x/this.scale,ly=y/this.scale;
    const h=[...this.hits].reverse().find(h=>lx>=h.x&&lx<=h.x+h.w&&ly>=h.y&&ly<=h.y+h.h);if(h){this.sheetScroll=this.sheetScroll||0;h.fn();}}
@@ -968,6 +981,7 @@ window.addEventListener('blur',()=>game.cancelGesture());
 window.addEventListener('focus',()=>{if(!document.hidden)game.show();});
 canvas.addEventListener('wheel',e=>{
  e.preventDefault();
+ if(game.confirmation)return;
  const unit=e.deltaMode===1?16:e.deltaMode===2?canvas.getBoundingClientRect().height:1;
  const field=game.sheet?'sheetScroll':'scroll',limit=game.sheet?game.sheetMaxScroll:game.maxScroll;
  game[field]=Math.max(0,Math.min(limit,game[field]+e.deltaY*unit/game.scale));

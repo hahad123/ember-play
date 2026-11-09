@@ -295,14 +295,28 @@
   function migrationReason(s){const next=TERRITORIES[(s.territoryLevel||0)+1];if(!next)return '本版已达最高领地';if(s.territoryProject)return '迁居尚未完成';if(!living(s).some(p=>p.realm>=next.realm))return '需要'+REALMS[next.realm]+'修士护持';if(s.resources.stones<next.stones||(s.ore||0)<next.ore||(s.fragments||0)<next.fragments)return '尚缺'+[['灵石',next.stones-s.resources.stones],['灵矿',next.ore-(s.ore||0)],['残卷',next.fragments-(s.fragments||0)]].filter(x=>x[1]>0).map(x=>Math.ceil(x[1])+x[0]).join('、');return '';}
   function migrate(s){const why=migrationReason(s);if(why)return why;const level=(s.territoryLevel||0)+1,next=TERRITORIES[level];s.resources.stones-=next.stones;s.ore-=next.ore;s.fragments=(s.fragments||0)-next.fragments;s.territoryProject={level,remaining:4};log(s,'筹备迁居','举族准备迁往'+next.name+'，需四季整备，现有产业与族人保留。','major');return null;}
   function expeditionPolicy(s){const trait=governance(s).trait;return {cadence:{prudent:8,frugal:8,benevolent:12,ambitious:4}[trait],risk:{prudent:.10,frugal:.12,benevolent:.08,ambitious:.25}[trait]};}
-  function governWorld(s){
-    if(s.pending||s.ending||policy(s).mode!=='auto')return;const g=governance(s),next=TERRITORIES[(s.territoryLevel||0)+1];
-    if(next&&!migrationReason(s)&&canFund(s,next.stones,'investment')){migrate(s);governRecord(s,'领地','筹备迁居'+next.name,next.stones);}
-    const cadence=expeditionPolicy(s).cadence,riskLimit=expeditionPolicy(s).risk;
-    if(s.turn<4||s.turn-(s.lastExpeditionTurn||0)<cadence||s.missions.some(m=>m.teamIds))return;
+  function autoExpeditionPlan(s){
+    const limits=expeditionPolicy(s),next=TERRITORIES[(s.territoryLevel||0)+1];let resource='',objective='积累灵石与修行材料';
+    if(next&&(s.ore||0)<next.ore){resource='ore';objective='为迁居收集灵矿（'+(s.ore||0)+'/'+next.ore+'）';}
+    else if(next&&(s.fragments||0)<next.fragments){resource='fragments';objective='为迁居收集功法残卷（'+(s.fragments||0)+'/'+next.fragments+'）';}
+    else if((s.herbs||0)<6&&s.pills<2){resource='herbs';objective='为炼丹储备草药（'+(s.herbs||0)+'/6）';}
+    const result={...limits,objective,resource,reason:'',teamIds:[],mapId:null},wait=reason=>({...result,reason});
+    if(s.ending)return wait('本世已结束');if(policy(s).mode!=='auto')return wait('当前亲自接管，自动派队暂停');if(s.pending)return wait('先处理待议族事');
+    if(s.missions.some(m=>m.teamIds))return wait('已有队伍在外，归来后再评估');
+    const remaining=Math.max(4-s.turn,limits.cadence-(s.turn-(s.lastExpeditionTurn||0)),0);if(remaining)return wait('距离下次派队评估还需'+remaining+'季');
     const available=living(s).filter(p=>p.id!==s.leaderId&&p.id!==s.heirId&&p.id!==s.focusId&&!p.jobLocked&&p.root<85&&age(p)>=16&&p.realm>=1&&p.health>=85&&p.job!=='outing'&&p.office!=='supreme').sort((a,b)=>realmPower(b.realm)-realmPower(a.realm)).slice(0,3);
-    if(!available.length||s.resources.food<forecast(s).foodCost*2+available.length*8)return;
-    for(const id of Object.keys(MAPS).reverse()){const plan=expeditionPlan(s,id,available.map(p=>p.id));if(!plan.reason&&plan.risk<=riskLimit){startExpedition(s,{map:id,ids:available.map(p=>p.id)});s.lastExpeditionTurn=s.turn;governRecord(s,'历练',g.name+'派队探索'+MAPS[id].name+'，遇险估计'+Math.round(plan.risk*100)+'%');return;}}
+    if(!available.length)return wait('暂无可自动派出的修士：需成年、健康85以上，且不是受保护或手动安排的族人');
+    const food=forecast(s).foodCost*2+available.length*8;if(s.resources.food<food)return wait('存粮需至少'+food+'（两季口粮及行装），当前'+Math.floor(s.resources.food));
+    const plans=Object.keys(MAPS).map(id=>({id,...expeditionPlan(s,id,available.map(p=>p.id))})).filter(p=>!p.reason&&p.risk<=limits.risk);
+    if(!plans.length)return wait('现有队伍探索风险超过族长上限'+Math.round(limits.risk*100)+'%，等待修为或人员提升');
+    plans.sort((a,b)=>Number((b.map[resource]||0)>0)-Number((a.map[resource]||0)>0)||(resource?(b.map[resource]||0)/b.map.turns-(a.map[resource]||0)/a.map.turns:0)||b.map.stones/b.map.turns-a.map.stones/a.map.turns||a.risk-b.risk);
+    const chosen=plans[0];return {...result,mapId:chosen.id,teamIds:available.map(p=>p.id),risk:chosen.risk,food:chosen.food,fallback:!!resource&&!chosen.map[resource]};
+  }
+  function governWorld(s){
+    if(s.pending||s.ending||policy(s).mode!=='auto')return;const next=TERRITORIES[(s.territoryLevel||0)+1];
+    if(next&&!migrationReason(s)&&canFund(s,next.stones,'investment')){migrate(s);governRecord(s,'领地','筹备迁居'+next.name,next.stones);}
+    const plan=autoExpeditionPlan(s);if(plan.reason)return;
+    if(!startExpedition(s,{map:plan.mapId,ids:plan.teamIds})){s.lastExpeditionTurn=s.turn;governRecord(s,'历练',governance(s).name+'：'+plan.objective+'；派队探索'+MAPS[plan.mapId].name+(plan.fallback?'（目标材料暂无法安全采集，先积累基础物资）':'')+'，遇险约'+Math.round(plan.risk*100)+'%');}
   }
   function protectionBonus(s){return (living(s).some(p=>p.office==='supreme'&&p.health>=60&&p.job!=='outing')?15:0)+Math.min(3,living(s).filter(p=>p.office==='elder'&&p.health>=60&&p.job!=='outing').length)*3;}
   function officeUpkeep(p){return p.affiliation==='retainer'?(p.realm>=14?10:4):OFFICES[p.office]?.upkeep||0;}
@@ -567,7 +581,7 @@
   function save(s){validate(s);const body=JSON.stringify(s);return JSON.stringify({version:VERSION,hash:hash(body),body});}
   function hash(str){let v=2166136261;for(let i=0;i<str.length;i++)v=Math.imul(v^str.charCodeAt(i),16777619);return (v>>>0).toString(16);}
   function load(text){const d=JSON.parse(text);if(!d||typeof d.body!=='string'||d.hash!==hash(d.body))throw Error('存档校验未通过');const s=validate(JSON.parse(d.body));repairNames(s);if(s.officeVersion!==1){if(s.leaderId!=='p1'){const founder=person(s,'p1');if(founder)founder.formerLeader=true;}s.officeVersion=1;}if(s.governanceVersion!==1){s.managementEnabled=true;s.governanceVersion=1;s.focusManual=!!s.focusId;}if(!s.managementReview&&!s.ending)snapshotDuties(s);compactArchives(s);for(const p of allPeople(s)){assignAppearance(s,p);const spouse=person(s,p.partner);if(p.alive&&spouse&&!spouse.alive){p.pastPartners=p.pastPartners||[];if(!p.pastPartners.some(q=>q.id===spouse.id))p.pastPartners.push({id:spouse.id,turn:spouse.diedTurn??s.turn});p.partner=null;}}return s;}
-  return {VERSION,REALMS,OFFICES,officeReason,officeUpkeep,MAPS,TERRITORIES,territory,bookCost,expeditionPolicy,expeditionPlan,migrationReason,ORIGINS,BUILDINGS,JOBS,BOOKS,SEASONS,create,dispatch,save,load,validate,living,familyLiving,allPeople,genealogy,branchKey,person,age,lifespan,need,cap,rootName,forecast,stageName,governance,lineageTasks,lineageStatus,areRelated,familySupport,talentCandidates,breakthroughPlan,portraitSpec,manageJobs,policy,PERSONALITIES,temperament,ROUTINE_KINDS,recommendedJob,sortedPeople,buildReason,bookReason,trainingReason,breakReason,breakChance};
+  return {VERSION,REALMS,OFFICES,officeReason,officeUpkeep,MAPS,TERRITORIES,territory,bookCost,autoExpeditionPlan,expeditionPolicy,expeditionPlan,migrationReason,ORIGINS,BUILDINGS,JOBS,BOOKS,SEASONS,create,dispatch,save,load,validate,living,familyLiving,allPeople,genealogy,branchKey,person,age,lifespan,need,cap,rootName,forecast,stageName,governance,lineageTasks,lineageStatus,areRelated,familySupport,talentCandidates,breakthroughPlan,portraitSpec,manageJobs,policy,PERSONALITIES,temperament,ROUTINE_KINDS,recommendedJob,sortedPeople,buildReason,bookReason,trainingReason,breakReason,breakChance};
 });
 
 </script><script>
@@ -660,13 +674,17 @@
    const net=f.income-f.upkeep-f.training;txt('预计灵石 '+(net>=0?'+':'')+net,31,y+16,19,net>=0?C.green:C.red,true);txt('进项 '+f.income+'  ·  维护 '+f.upkeep+'  ·  培养 '+f.training,31,y+49,12,C.muted);txt('灵谷 '+f.food+' / 消耗 '+f.foodCost,31,y+74,12,C.muted);hit('收支账簿',16,y,358,104,()=>{a.sheet={kind:'ledger'};a.draw();});y+=121;
    headline('族中近况',y);y+=32;for(const l of s.logs.slice(0,5)){card(y,74);txt(l.title,30,y+13,14,l.kind==='bad'?C.red:C.ink,true);lines(l.text,30,y+37,325,12,C.muted,1);y+=84;}
   }else if(a.tab==='people'){
-   headline('族人',y,'已测灵根优先 · 资质由高到低');y+=35;btn('查看族职与供奉',18,y,354,()=>{a.sheet={kind:'offices'};a.sheetScroll=0;a.draw();},{ghost:true});y+=56;
-   for(const [i,[id,label]] of [['all','在世'],['ready','可突破'],['child','幼年'],['dead','已故']].entries()){
-    const x=18+i*91,on=a.filter===id;box(x,y,81,36,on?C.green:C.card,8,C.line);txt(label,x+40,y+11,12,on?'#fff9ef':C.green,true,'center');hit(label,x,y,81,40,()=>{a.filter=id;a.scroll=0;a.draw();});
-   }y+=52;
-   const members=(a.filter==='dead'?E.genealogy(s).ancestors.slice(0,16):E.sortedPeople(s)).filter(p=>a.filter==='dead'?!p.alive:p.alive&&!p.departed&&(a.filter!=='child'||E.age(p)<18)&&(a.filter!=='ready'||[9,13,17].includes(p.realm)&&p.progress>=E.need(p)));
+   headline('族人',y,'分类查看 · 每页6人');y+=35;btn('查看族职与供奉',18,y,354,()=>{a.sheet={kind:'offices'};a.sheetScroll=0;a.draw();},{ghost:true});y+=56;
+   const pools={all:E.living(s),cultivators:E.living(s).filter(p=>p.realm>=1),mortals:E.living(s).filter(p=>p.realm===0&&E.age(p)>=18),outing:E.living(s).filter(p=>p.job==='outing'),ready:E.living(s).filter(p=>[9,13,17].includes(p.realm)&&p.progress>=E.need(p)),child:E.living(s).filter(p=>E.age(p)<18),officers:E.living(s).filter(p=>p.office||p.id===s.leaderId),dead:E.allPeople(s).filter(p=>!p.alive)};
+   for(const [i,[id,label]] of [['all','在世'],['cultivators','修士'],['mortals','凡人'],['outing','外出'],['ready','可突破'],['child','幼年'],['officers','族职'],['dead','已故']].entries()){
+    const x=18+(i%4)*91,cy=y+Math.floor(i/4)*47,on=a.filter===id;box(x,cy,81,39,on?C.green:C.card,5,C.line);txt(label+' '+pools[id].length,x+40,cy+13,11,on?'#fff9ef':C.green,true,'center');hit(label,x,cy,81,39,()=>{a.filter=id;a.peoplePage=0;a.scroll=0;a.draw();});
+   }y+=102;
+   for(const [i,[id,label]] of [['root','资质'],['realm','境界'],['age','年龄'],['generation','辈分']].entries()){const on=(a.peopleSort||'root')===id,x=18+i*91;box(x,y,81,32,on?C.pale:C.card,4,C.line);txt(label,x+40,y+10,11,C.green,on,'center');hit('排序:'+label,x,y,81,32,()=>{a.peopleSort=id;a.peoplePage=0;a.scroll=0;a.draw();});}y+=45;
+   const sorted=(pools[a.filter]||pools.all).slice().sort((a1,b)=>{const mode=a.peopleSort||'root';return (mode==='realm'?b.realm-a1.realm:mode==='age'?E.age(b)-E.age(a1):mode==='generation'?a1.generation-b.generation:Number(b.rootKnown)-Number(a1.rootKnown)||b.root-a1.root)||b.realm-a1.realm||a1.id.localeCompare(b.id);}),pages=Math.max(1,Math.ceil(sorted.length/6)),page=Math.max(0,Math.min(a.peoplePage||0,pages-1));a.peoplePage=page;
+   btn('上一页族人',18,y,105,()=>{a.peoplePage=page-1;a.scroll=0;a.draw();},{ghost:true,disabled:page===0});txt((page+1)+' / '+pages+' · '+sorted.length+'人',195,y+15,12,C.gold,true,'center');btn('下一页族人',267,y,105,()=>{a.peoplePage=page+1;a.scroll=0;a.draw();},{ghost:true,disabled:page===pages-1});y+=59;
+   const members=sorted.slice(page*6,page*6+6);
    if(!members.length){card(y,110);txt('这一页暂时没有族人',195,y+35,15,C.muted,false,'center');y+=130;}
-   for(const p of members){card(y,103);portrait(p,29,y+19,28);txt(p.name,101,y+15,16,p.alive?C.ink:C.muted,true);txt(E.age(p)+'岁 · '+E.REALMS[p.realm],101,y+41,12,C.muted);let tag=p.id===s.leaderId?'族长':p.id===s.heirId?'继承人':!p.alive?'已故':p.office?E.OFFICES[p.office].name:E.JOBS[p.job];badge(tag,275,y+14);txt(E.rootName(p),101,y+68,11,C.muted);progress(250,y+73,103,p.progress/E.need(p));hit('族人:'+p.name,17,y,356,103,()=>a.openPerson(p.id));y+=114;}
+   for(const p of members){card(y,103);portrait(p,29,y+19,28);fitText(p.name,101,y+15,166,16,p.alive?C.ink:C.muted,true);txt(E.age(p)+'岁 · '+E.REALMS[p.realm],101,y+41,12,C.muted);let tag=p.id===s.leaderId?'族长':p.id===s.heirId?'继承人':!p.alive?'已故':p.office?E.OFFICES[p.office].name:E.JOBS[p.job];badge(tag,275,y+14);txt(E.rootName(p),101,y+68,11,C.muted);progress(250,y+73,103,p.progress/E.need(p));hit('族人:'+p.name,17,y,356,103,()=>a.openPerson(p.id));y+=114;}
    if(a.filter==='dead'){btn('去祖祠查看全部历史人物',18,y,354,()=>{a.genealogyTab='ancestors';a.genealogyPage=0;a.setTab('history');},{ghost:true});y+=57;}
    txt('点击族人，安排职责、测灵或指定继承人',195,y+7,11,C.muted,false,'center');y+=38;
   }else if(a.tab==='industry'){
@@ -774,6 +792,7 @@
     btn('族库至少保留：'+p.reserve+'灵石',23,z,344,()=>a.input('族库保留额（0—100000）',String(p.reserve),v=>set({reserve:Number(v)})),{ghost:true});z+=65;
     z=lines('自动模式离开页面后按时长补算，最多8小时，年龄与寿元同步推进；遇重大族事暂停。族长选择记在族中近况。',23,z,344,12,C.muted,4)+20;
    }else if(sh.kind==='journeys'){
+    const autoPlan=E.autoExpeditionPlan(s);txt('族长历练安排',23,z,18,C.ink,true);z+=31;z=lines(autoPlan.objective,23,z,344,13,C.green,2)+12;z=lines(autoPlan.reason||'下次过季评估：'+E.MAPS[autoPlan.mapId].name+' · 遇险约'+Math.round(autoPlan.risk*100)+'%'+(autoPlan.fallback?'；目标材料尚不能安全获取，先积累基础物资':''),23,z,344,12,C.muted,4)+22;
     txt('在外队伍 · '+s.missions.length,23,z,18,C.ink,true);z+=34;
     if(!s.missions.length){txt('目前没有族人在外历练',23,z,13,C.muted);z+=30;}
     for(const m of s.missions){const map=m.mapId?E.MAPS[m.mapId]:null,remaining=Math.max(0,m.due-s.turn),duration=map?.turns||1,ids=m.teamIds||[m.personId];txt(map?.name||(m.risk<.1?'山间采药':'探访古迹'),23,z,17,C.green,true);z+=29;z=lines('队员：'+ids.map(id=>E.person(s,id)?.name||'未录名').join('、'),23,z,344,13,C.ink,3)+12;txt('还需'+remaining+'季（'+remaining*3+'个月） · 预计第'+(Math.floor(m.due/4)+1)+'年'+E.SEASONS[m.due%4]+'归来',23,z,12,C.gold);z+=27;progress(23,z,344,(duration-remaining)/duration);z+=22;z=lines('遇险约'+Math.round(m.risk*100)+'%；成功预计：'+(map?'灵石'+map.stones+'、草药'+map.herbs+'、灵矿'+map.ore+'、残卷'+map.fragments:m.reward+'灵石及草药')+'。收益归来后结算，结果可能受遇险影响。',23,z,344,12,C.muted,3)+18;rule(z,23,344);z+=22;}
@@ -858,6 +877,7 @@
     const parents=p.parents.map(id=>E.person(s,id)?.name||'先人').join('、');txt(E.rootName(p)+'  ·  健康 '+Math.round(p.health)+'  ·  悟性 '+Math.round(p.insight),23,z,13,C.ink);z+=26;
     txt(parents?'父母：'+parents:p.id===s.leaderId?'主持家族，守护一方':p.affiliation==='retainer'?'外来供奉 · 非血亲成员':'入籍家人 · 第'+p.generation+'辈',23,z,12,C.muted);z+=25;if(p.parents.length){for(const [i,id] of p.parents.slice(0,2).entries()){const parent=E.person(s,id);if(parent)btn((parent.sex==='f'?'母：':'父：')+parent.name,23+i*177,z,167,()=>a.openPerson(id),{ghost:true,h:44});}z+=54;}progress(23,z,344,p.progress/E.need(p));z+=19;
     if(!p.alive||p.departed){lines(p.departed?'供奉已离族，任职记录仍保留。':p.cause+'。这位亲人已留在族谱之中。',23,z,344,15,C.muted,4);return;}
+    if(p.job==='outing'){const mission=s.missions.find(m=>(m.teamIds||[m.personId]).includes(p.id));z=lines(mission?'正在'+(mission.mapId?E.MAPS[mission.mapId].name:mission.risk<.1?'山间采药':'探访古迹')+'历练，还需'+Math.max(0,mission.due-s.turn)+'季归来。':'正在外出，归来后才能安排族内事务。',23,z,344,13,C.green,3)+15;btn('查看这次历练进度',23,z,344,()=>{a.sheet={kind:'journeys'};a.sheetScroll=0;a.draw();},{ghost:true});z+=58;}
     if(!p.rootKnown){btn('测灵 · 5灵石',23,z,344,action('root',p.id),{ghost:true});z+=54;}
     txt('族职：'+(p.office?E.OFFICES[p.office].name:'无')+' · 供养 '+E.officeUpkeep(p)+'/季',23,z,13,C.gold,true);z+=28;
     if(p.id!==s.leaderId&&E.age(p)>=18&&p.affiliation!=='retainer'){for(const role of ['elder','supreme']){if(E.officeReason(s,p,role))continue;btn('任为'+E.OFFICES[role].name,23,z,344,()=>{const why=E.officeReason(s,p,role);if(why)a.toast(why);else a.act('office',{id:p.id,role});},{ghost:true,h:44});z+=52;}}
@@ -909,7 +929,7 @@
  const KEY='yunlan_clan_wechat_v1';
  class App{
   constructor(host){
-   this.host=host;this.E=E;this.canvas=host.canvas;this.ctx=this.canvas.getContext('2d');this.images={};this.tab='home';this.filter='all';this.scroll=0;this.maxScroll=0;this.sheet=null;this.sheetScroll=0;this.sheetMaxScroll=0;this.genealogyTab='main';this.genealogyPage=0;this.expandedBranch=null;this.expeditionTeam=[];this.expeditionPage=0;this.origin='humble';this.surname='沈';this.state=null;this.hits=[];this.loadError=false;
+   this.host=host;this.E=E;this.canvas=host.canvas;this.ctx=this.canvas.getContext('2d');this.images={};this.tab='home';this.filter='all';this.peoplePage=0;this.peopleSort='root';this.scroll=0;this.maxScroll=0;this.sheet=null;this.sheetScroll=0;this.sheetMaxScroll=0;this.genealogyTab='main';this.genealogyPage=0;this.expandedBranch=null;this.expeditionTeam=[];this.expeditionPage=0;this.origin='humble';this.surname='沈';this.state=null;this.hits=[];this.loadError=false;
    this.autoEnabled=false;this.elapsed=0;this.lastTick=Date.now();this.foreground=true;this.modalDepth=0;this.backgroundClock=null;this.awayReport=null;
    try{this.autoEnabled=host.get(KEY+'_auto')==='1';}catch(_){}
    try{const raw=host.get(KEY);if(raw)this.state=E.load(raw);}catch(e){this.loadError=true;try{const raw=host.get(KEY+'_backup');if(raw){this.state=E.load(raw);this.toastText='已从本地备份恢复';this.toastUntil=Date.now()+4000;}}catch(_){} }
